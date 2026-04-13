@@ -31,6 +31,14 @@ async def upsert_question(
         return row  # type: ignore[return-value]
 
 
+async def update_tags(question_id: int, tags_json: str) -> None:
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE questions SET tags = ? WHERE id = ?",
+            (tags_json, question_id),
+        )
+
+
 async def set_translation(question_id: int, text_ru: str) -> None:
     async with get_db() as db:
         await db.execute(

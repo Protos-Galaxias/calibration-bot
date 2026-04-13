@@ -5,13 +5,28 @@ from aiogram import Bot, Router, types
 from aiogram.filters import Command
 
 from bot.db.queries.pending import has_pending_question, set_pending_question
-from bot.db.queries.questions import set_translation
+from bot.db.queries.questions import set_translation, update_tags
 from bot.db.queries.users import get_user
 from bot.helpers.formatting import format_question_message
 from bot.services.translator import translate_to_russian
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+async def _fetch_tags_from_manifold(manifold_id: str, question_id: int) -> list[str]:
+    try:
+        from bot.main import manifold_client
+        market = await manifold_client.get_market(manifold_id)
+        slugs: list[str] = market.get("groupSlugs", [])
+        if slugs:
+            await update_tags(question_id, json.dumps(slugs))
+
+        return slugs
+    except Exception:
+        logger.warning("Failed to fetch tags for manifold_id=%s", manifold_id)
+
+        return []
 
 
 def _skip_button(category: str) -> types.InlineKeyboardMarkup:
@@ -33,6 +48,9 @@ async def send_question_to_user(chat_id: int, user_row, question_row) -> None:
 
     raw_tags = question_row["tags"] if "tags" in question_row.keys() else "[]"
     tags: list[str] = json.loads(raw_tags) if raw_tags else []
+
+    if not tags:
+        tags = await _fetch_tags_from_manifold(question_row["manifold_id"], question_row["id"])
 
     text = format_question_message(
         question_text=question_text,
