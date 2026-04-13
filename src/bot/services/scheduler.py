@@ -93,9 +93,11 @@ async def _send_weekly_summary() -> None:
             logger.exception("Failed to send weekly summary to user %s", user["telegram_id"])
 
 
-async def setup_scheduler() -> AsyncScheduler:
-    scheduler = AsyncScheduler()
+def create_scheduler() -> AsyncScheduler:
+    return AsyncScheduler()
 
+
+async def add_schedules(scheduler: AsyncScheduler) -> None:
     await scheduler.add_schedule(
         _send_daily_questions,
         CronTrigger(minute=0),
@@ -113,5 +115,3 @@ async def setup_scheduler() -> AsyncScheduler:
         CronTrigger(day_of_week="mon", hour=10, minute=0),
         id="weekly_summary",
     )
-
-    return scheduler

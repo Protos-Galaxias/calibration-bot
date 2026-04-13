@@ -8,7 +8,7 @@ from bot.config import settings
 from bot.db.connection import init_db
 from bot.handlers import answer, callbacks, domains, help, question, settings as settings_handler, start, stats, streak
 from bot.services.manifold import ManifoldClient
-from bot.services.scheduler import setup_scheduler
+from bot.services.scheduler import add_schedules, create_scheduler
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -35,9 +35,10 @@ async def main() -> None:
     dp.include_router(help.router)
     dp.include_router(callbacks.router)
 
-    scheduler = await setup_scheduler()
+    scheduler = create_scheduler()
 
     async with scheduler:
+        await add_schedules(scheduler)
         await scheduler.start_in_background()
         logger.info("Scheduler started")
 
