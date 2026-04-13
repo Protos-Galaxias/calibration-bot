@@ -1,0 +1,16 @@
+[project]
+name = "calibration-bot"
+version = "0.1.0"
+description = "Telegram bot for training probability calibration using prediction markets"
+requires-python = ">=3.12"
+dependencies = [
+    "aiogram>=3.15",
+    "aiosqlite>=0.20",
+    "httpx>=0.28",
+    "apscheduler>=4.0",
+    "pydantic-settings>=2.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
