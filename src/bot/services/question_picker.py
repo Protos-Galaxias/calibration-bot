@@ -35,8 +35,12 @@ async def _fetch_and_cache(client: ManifoldClient, target_category: str) -> int:
         if is_meta_question(m.question, m.group_slugs):
             continue
 
-        close_dt = datetime.fromtimestamp(m.close_time / 1000, tz=timezone.utc) if m.close_time else None
-        if not close_dt:
+        if not m.close_time:
+            continue
+
+        try:
+            close_dt = datetime.fromtimestamp(m.close_time / 1000, tz=timezone.utc)
+        except (ValueError, OSError, OverflowError):
             continue
 
         horizon = (close_dt - now).days
