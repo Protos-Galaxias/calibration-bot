@@ -94,7 +94,11 @@ async def _fetch_and_cache(client: ManifoldClient, target_category: str) -> int:
         searches.append(slug)
 
     for topic_slug in searches:
-        markets = await client.search_markets(sort="liquidity", limit=100, topic_slug=topic_slug)
+        try:
+            markets = await client.search_markets(sort="liquidity", limit=100, topic_slug=topic_slug)
+        except Exception:
+            logger.warning("Failed to fetch markets for topic_slug=%s, skipping", topic_slug)
+            continue
 
         for m in markets:
             if m.is_resolved:
