@@ -12,4 +12,4 @@ COPY src/ src/
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 
-CMD ["uv", "run", "--no-dev", "python", "-m", "bot.main"]
+CMD [".venv/bin/python", "-m", "bot.main"]
