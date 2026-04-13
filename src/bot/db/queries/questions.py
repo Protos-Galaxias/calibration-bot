@@ -20,7 +20,8 @@ async def upsert_question(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(manifold_id) DO UPDATE SET
                 market_prob = excluded.market_prob,
-                volume = excluded.volume
+                volume = excluded.volume,
+                tags = excluded.tags
             RETURNING *
             """,
             (manifold_id, question_text, category, tags, market_prob, close_time, volume, url),
