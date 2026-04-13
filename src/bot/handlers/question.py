@@ -1,11 +1,9 @@
 import json
 import logging
-from datetime import date
 
 from aiogram import Bot, Router, types
 from aiogram.filters import Command
 
-from bot.db.queries.answers import count_answers_today
 from bot.db.queries.pending import has_pending_question, set_pending_question
 from bot.db.queries.questions import set_translation
 from bot.db.queries.users import get_user
@@ -14,9 +12,6 @@ from bot.services.translator import translate_to_russian
 
 logger = logging.getLogger(__name__)
 router = Router()
-
-CALIBRATION_LIMIT = 5
-POST_CALIBRATION_LIMIT = 3
 
 
 def _skip_button(category: str) -> types.InlineKeyboardMarkup:
@@ -66,15 +61,6 @@ async def cmd_question(message: types.Message) -> None:
 
     if await has_pending_question(message.from_user.id):
         await message.answer("У тебя уже есть неотвеченный вопрос. Ответь числом от 0 до 100.")
-
-        return
-
-    today = date.today().isoformat()
-    answered_today = await count_answers_today(user["id"], today)
-    limit = CALIBRATION_LIMIT if user["phase"] == "calibration" else POST_CALIBRATION_LIMIT
-
-    if answered_today >= limit:
-        await message.answer(f"Лимит на сегодня: {limit} вопросов. Приходи завтра!")
 
         return
 

@@ -54,7 +54,8 @@ def format_answer_response(user_prob: float, market_prob: float) -> str:
     return (
         f"📝 Твоя оценка: <b>{u}%</b>\n"
         f"📊 Рынок (Manifold): <b>{m}%</b>\n"
-        f"📏 Расхождение: {diff} п.п."
+        f"📏 Расхождение: {diff} п.п.\n\n"
+        f"Следующий вопрос → /question"
     )
 
 
