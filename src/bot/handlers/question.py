@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import date
 
@@ -6,8 +7,10 @@ from aiogram.filters import Command
 
 from bot.db.queries.answers import count_answers_today
 from bot.db.queries.pending import has_pending_question, set_pending_question
+from bot.db.queries.questions import set_translation
 from bot.db.queries.users import get_user
 from bot.helpers.formatting import format_question_message
+from bot.services.translator import translate_to_russian
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -25,11 +28,24 @@ def _skip_button(category: str) -> types.InlineKeyboardMarkup:
 async def send_question_to_user(chat_id: int, user_row, question_row) -> None:
     from bot.main import bot
 
+    question_text = question_row["question_text"]
+    text_ru = question_row["question_text_ru"] if "question_text_ru" in question_row.keys() else None
+
+    if not text_ru:
+        text_ru = await translate_to_russian(question_text)
+        if text_ru:
+            await set_translation(question_row["id"], text_ru)
+
+    raw_tags = question_row["tags"] if "tags" in question_row.keys() else "[]"
+    tags: list[str] = json.loads(raw_tags) if raw_tags else []
+
     text = format_question_message(
-        question_text=question_row["question_text"],
+        question_text=question_text,
         category=question_row["category"],
         total_answers=user_row["total_answers"],
         phase=user_row["phase"],
+        question_text_ru=text_ru,
+        tags=tags,
     )
     kb = _skip_button(question_row["category"])
     await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)

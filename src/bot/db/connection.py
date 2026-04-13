@@ -22,6 +22,13 @@ async def init_db() -> None:
 
         schema = _SCHEMA_PATH.read_text()
         await db.executescript(schema)
+
+        for col, default in [("tags", "'[]'"), ("question_text_ru", "NULL")]:
+            try:
+                await db.execute(f"ALTER TABLE questions ADD COLUMN {col} TEXT DEFAULT {default}")
+            except Exception:
+                pass
+
         await db.commit()
 
     logger.info("Database initialized at %s", path)

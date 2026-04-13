@@ -7,22 +7,43 @@ def category_label(slug: str) -> str:
     return CATEGORIES.get(slug, slug)
 
 
+def _format_tags(tags: list[str]) -> str:
+    if not tags:
+        return ""
+
+    visible = [t.replace("-", " ").title() for t in tags if t not in ("manifold", "manifold-markets")]
+
+    return " · ".join(visible[:5])
+
+
 def format_question_message(
     question_text: str,
     category: str,
     total_answers: int,
     phase: str,
+    question_text_ru: str | None = None,
+    tags: list[str] | None = None,
 ) -> str:
     counter = f"Калибровка: {total_answers}/{CALIBRATION_GOAL}" if phase == "calibration" else f"Прогнозов: {total_answers}"
     cat = category_label(category)
+    tag_line = _format_tags(tags or [])
 
-    return (
-        f"🔮 <b>Вопрос дня</b> · {counter}\n\n"
-        f"📁 {cat}\n\n"
-        f"{question_text}\n\n"
-        f"Рыночная вероятность (Manifold): скрыта до твоего ответа.\n\n"
-        f"С какой вероятностью это произойдёт? (0–100%)"
-    )
+    lines = [f"🔮 <b>Вопрос дня</b> · {counter}\n"]
+    lines.append(f"📁 {cat}")
+    if tag_line:
+        lines.append(f"🏷 {tag_line}")
+    lines.append("")
+
+    if question_text_ru and question_text_ru != question_text:
+        lines.append(f"<b>{question_text_ru}</b>")
+        lines.append(f"<i>{question_text}</i>")
+    else:
+        lines.append(f"<b>{question_text}</b>")
+
+    lines.append("")
+    lines.append("С какой вероятностью это произойдёт? (0–100%)")
+
+    return "\n".join(lines)
 
 
 def format_answer_response(user_prob: float, market_prob: float) -> str:

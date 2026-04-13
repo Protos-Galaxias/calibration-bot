@@ -11,22 +11,31 @@ async def upsert_question(
     close_time: str,
     volume: float,
     url: str,
+    tags: str = "[]",
 ) -> Row:
     async with get_db() as db:
         cursor = await db.execute(
             """
-            INSERT INTO questions (manifold_id, question_text, category, market_prob, close_time, volume, url)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO questions (manifold_id, question_text, category, tags, market_prob, close_time, volume, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(manifold_id) DO UPDATE SET
                 market_prob = excluded.market_prob,
                 volume = excluded.volume
             RETURNING *
             """,
-            (manifold_id, question_text, category, market_prob, close_time, volume, url),
+            (manifold_id, question_text, category, tags, market_prob, close_time, volume, url),
         )
         row = await cursor.fetchone()
 
         return row  # type: ignore[return-value]
+
+
+async def set_translation(question_id: int, text_ru: str) -> None:
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE questions SET question_text_ru = ? WHERE id = ?",
+            (text_ru, question_id),
+        )
 
 
 async def get_unused_question_for_user(user_id: int, category: str) -> Row | None:

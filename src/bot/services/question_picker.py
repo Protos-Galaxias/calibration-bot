@@ -67,15 +67,16 @@ async def _fetch_and_cache(client: ManifoldClient, target_category: str) -> int:
 
             category = await categorize(m.question, m.group_slugs)
 
-            await upsert_question(
-                manifold_id=m.id,
-                question_text=m.question,
-                category=category,
-                market_prob=m.probability,
-                close_time=close_dt.isoformat(),
-                volume=m.volume,
-                url=m.url,
-            )
+        await upsert_question(
+            manifold_id=m.id,
+            question_text=m.question,
+            category=category,
+            market_prob=m.probability,
+            close_time=close_dt.isoformat(),
+            volume=m.volume,
+            url=m.url,
+            tags=json.dumps(m.group_slugs),
+        )
             cached += 1
 
         if cached >= CACHE_THRESHOLD:
