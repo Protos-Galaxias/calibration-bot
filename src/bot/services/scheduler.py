@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from apscheduler.schedulers.async_ import AsyncScheduler
+from apscheduler import AsyncScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
