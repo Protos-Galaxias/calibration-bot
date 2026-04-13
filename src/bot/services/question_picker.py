@@ -26,6 +26,62 @@ CATEGORY_TOPIC_SLUGS: dict[str, list[str]] = {
     "misc": [],
 }
 
+LOCAL_TAG_BLOCKLIST = frozenset({
+    "brazil", "brazilian-politics", "brasil", "lula", "bolsonaro",
+    "france", "french-politics", "macron",
+    "india", "indian-politics", "modi", "bjp",
+    "mexico", "mexican-politics", "amlo",
+    "argentina", "milei",
+    "colombia", "colombian-politics",
+    "peru", "peruvian-politics",
+    "chile", "chilean-politics",
+    "philippines", "philippine-politics", "marcos",
+    "turkey", "turkish-politics", "erdogan",
+    "thailand", "thai-politics",
+    "nigeria", "nigerian-politics",
+    "pakistan", "pakistani-politics",
+    "bangladesh", "bangladeshi-politics",
+    "indonesia", "indonesian-politics",
+    "south-korea", "korean-politics",
+    "japan", "japanese-politics",
+    "australia", "australian-politics",
+    "canada", "canadian-politics",
+    "new-zealand",
+    "ireland", "irish-politics",
+    "spain", "spanish-politics",
+    "italy", "italian-politics",
+    "netherlands", "dutch-politics",
+    "belgium", "belgian-politics",
+    "poland", "polish-politics",
+    "romania", "romanian-politics",
+    "hungary", "hungarian-politics", "orban",
+    "czech", "czech-politics",
+    "portugal", "portuguese-politics",
+    "sweden", "swedish-politics",
+    "norway", "norwegian-politics",
+    "denmark", "danish-politics",
+    "finland", "finnish-politics",
+    "austria", "austrian-politics",
+    "switzerland", "swiss-politics",
+    "greece", "greek-politics",
+})
+
+GLOBAL_TAG_ALLOWLIST = frozenset({
+    "us-politics", "china", "russia", "ukraine", "nato", "eu",
+    "eu-politics", "geopolitics", "united-nations", "nuclear",
+    "world-politics", "international-relations", "elections",
+    "middle-east", "israel", "iran", "north-korea",
+    "uk-politics", "germany", "german-politics",
+})
+
+
+def _is_local_politics(group_slugs: list[str]) -> bool:
+    slugs = {s.lower() for s in group_slugs}
+    if slugs & GLOBAL_TAG_ALLOWLIST:
+        return False
+
+    return bool(slugs & LOCAL_TAG_BLOCKLIST)
+
 
 async def _fetch_and_cache(client: ManifoldClient, target_category: str) -> int:
     """Fetch markets from Manifold, filter, categorize, and store. Return count of new questions cached."""
@@ -48,6 +104,8 @@ async def _fetch_and_cache(client: ManifoldClient, target_category: str) -> int:
             if m.probability < MIN_PROB or m.probability > MAX_PROB:
                 continue
             if is_meta_question(m.question, m.group_slugs):
+                continue
+            if _is_local_politics(m.group_slugs):
                 continue
 
             if not m.close_time:
