@@ -77,7 +77,7 @@ async def _fetch_and_cache(client: ManifoldClient, target_category: str) -> int:
             url=m.url,
             tags=json.dumps(m.group_slugs),
         )
-            cached += 1
+        cached += 1
 
         if cached >= CACHE_THRESHOLD:
             break
