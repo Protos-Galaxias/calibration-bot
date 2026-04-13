@@ -3,6 +3,7 @@ import logging
 import sys
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 
 from bot.config import settings
 from bot.db.connection import init_db
@@ -34,6 +35,15 @@ async def main() -> None:
     dp.include_router(settings_handler.router)
     dp.include_router(help.router)
     dp.include_router(callbacks.router)
+
+    await bot.set_my_commands([
+        BotCommand(command="question", description="Получить вопрос"),
+        BotCommand(command="stats", description="Статистика и Brier Score"),
+        BotCommand(command="domains", description="Точность по категориям"),
+        BotCommand(command="streak", description="Серия ответов"),
+        BotCommand(command="settings", description="Настройки"),
+        BotCommand(command="help", description="Справка"),
+    ])
 
     scheduler = create_scheduler()
 
