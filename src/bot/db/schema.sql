@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     streak_current INTEGER DEFAULT 0,
     streak_best INTEGER DEFAULT 0,
     streak_last_date TEXT,
+    blocked_tags TEXT DEFAULT '[]',
     created_at TEXT DEFAULT (datetime('now'))
 );
 

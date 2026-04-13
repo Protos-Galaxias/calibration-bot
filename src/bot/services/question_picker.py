@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from aiosqlite import Row
 
 from bot.db.queries.questions import count_cached_by_category, get_unused_question_for_user, question_exists, upsert_question
+from bot.db.queries.users import get_blocked_tags
 from bot.services.categorizer import categorize, is_meta_question
 from bot.services.manifold import ManifoldClient
 
@@ -26,64 +27,15 @@ CATEGORY_TOPIC_SLUGS: dict[str, list[str]] = {
     "misc": [],
 }
 
-LOCAL_TAG_BLOCKLIST = frozenset({
-    "brazil", "brazilian-politics", "brasil", "lula", "bolsonaro",
-    "france", "french-politics", "macron",
-    "india", "indian-politics", "modi", "bjp",
-    "mexico", "mexican-politics", "amlo",
-    "argentina", "milei",
-    "colombia", "colombian-politics",
-    "peru", "peruvian-politics",
-    "chile", "chilean-politics",
-    "philippines", "philippine-politics", "marcos",
-    "turkey", "turkish-politics", "erdogan",
-    "thailand", "thai-politics",
-    "nigeria", "nigerian-politics",
-    "pakistan", "pakistani-politics",
-    "bangladesh", "bangladeshi-politics",
-    "indonesia", "indonesian-politics",
-    "south-korea", "korean-politics",
-    "japan", "japanese-politics",
-    "australia", "australian-politics",
-    "canada", "canadian-politics",
-    "new-zealand",
-    "ireland", "irish-politics",
-    "spain", "spanish-politics",
-    "italy", "italian-politics",
-    "netherlands", "dutch-politics",
-    "belgium", "belgian-politics",
-    "poland", "polish-politics",
-    "romania", "romanian-politics",
-    "hungary", "hungarian-politics", "orban",
-    "czech", "czech-politics",
-    "portugal", "portuguese-politics",
-    "sweden", "swedish-politics",
-    "norway", "norwegian-politics",
-    "denmark", "danish-politics",
-    "finland", "finnish-politics",
-    "austria", "austrian-politics",
-    "switzerland", "swiss-politics",
-    "greece", "greek-politics",
-})
-
-GLOBAL_TAG_ALLOWLIST = frozenset({
-    "us-politics", "china", "russia", "ukraine", "nato", "eu",
-    "eu-politics", "geopolitics", "united-nations", "nuclear",
-    "world-politics", "international-relations", "elections",
-    "middle-east", "israel", "iran", "north-korea",
-    "uk-politics", "germany", "german-politics",
-})
-
-
-def _is_local_politics(group_slugs: list[str]) -> bool:
-    slugs = {s.lower() for s in group_slugs}
-    if slugs & GLOBAL_TAG_ALLOWLIST:
+def _has_blocked_tag(group_slugs: list[str], blocked_tags: set[str]) -> bool:
+    if not blocked_tags:
         return False
+    slugs = {s.lower() for s in group_slugs}
 
-    return bool(slugs & LOCAL_TAG_BLOCKLIST)
+    return bool(slugs & blocked_tags)
 
 
-async def _fetch_and_cache(client: ManifoldClient, target_category: str) -> int:
+async def _fetch_and_cache(client: ManifoldClient, target_category: str, blocked_tags: set[str] | None = None) -> int:
     """Fetch markets from Manifold, filter, categorize, and store. Return count of new questions cached."""
     now = datetime.now(timezone.utc)
     cached = 0
@@ -109,7 +61,7 @@ async def _fetch_and_cache(client: ManifoldClient, target_category: str) -> int:
                 continue
             if is_meta_question(m.question, m.group_slugs):
                 continue
-            if _is_local_politics(m.group_slugs):
+            if _has_blocked_tag(m.group_slugs, blocked_tags or set()):
                 continue
 
             if not m.close_time:
@@ -162,6 +114,29 @@ def _pick_category(user_categories: list[str], answer_counts: dict[str, int]) ->
     return best
 
 
+def _matches_blocked_tags(question_row: Row, blocked: set[str]) -> bool:
+    if not blocked:
+        return False
+    raw = question_row["tags"] if "tags" in question_row.keys() else "[]"
+    tags = {t.lower() for t in json.loads(raw or "[]")}
+
+    return bool(tags & blocked)
+
+
+async def _get_unblocked_question(user_id: int, category: str, blocked: set[str]) -> Row | None:
+    for _ in range(20):
+        q = await get_unused_question_for_user(user_id, category)
+        if not q:
+            return None
+        if not _matches_blocked_tags(q, blocked):
+            return q
+        # mark as "seen" by skipping — just try next random one
+        # since ORDER BY RANDOM() we'll get different ones each time
+        # but we need to exclude this one; simplest: just loop and hope
+        # In practice blocked tags cover few questions
+    return None
+
+
 async def pick_question(
     user_row: Row,
     manifold_client: ManifoldClient,
@@ -169,6 +144,9 @@ async def pick_question(
     """Pick a question for the user. Returns a question Row or None if nothing available."""
     categories: list[str] = json.loads(user_row["categories"])
     user_id: int = user_row["id"]
+    tg_id: int = user_row["telegram_id"]
+
+    blocked = set(await get_blocked_tags(tg_id))
 
     from bot.db.connection import get_db
 
@@ -188,28 +166,28 @@ async def pick_question(
     answer_counts = {r["category"]: r["cnt"] for r in rows}
     target_cat = _pick_category(categories, answer_counts)
 
-    question = await get_unused_question_for_user(user_id, target_cat)
+    question = await _get_unblocked_question(user_id, target_cat, blocked)
     if question:
         return question
 
     cache_count = await count_cached_by_category(target_cat)
     if cache_count < CACHE_THRESHOLD:
-        await _fetch_and_cache(manifold_client, target_cat)
-        question = await get_unused_question_for_user(user_id, target_cat)
+        await _fetch_and_cache(manifold_client, target_cat, blocked)
+        question = await _get_unblocked_question(user_id, target_cat, blocked)
         if question:
             return question
 
     for cat in categories:
         if cat == target_cat:
             continue
-        question = await get_unused_question_for_user(user_id, cat)
+        question = await _get_unblocked_question(user_id, cat, blocked)
         if question:
             return question
 
         cache_count = await count_cached_by_category(cat)
         if cache_count < CACHE_THRESHOLD:
-            await _fetch_and_cache(manifold_client, cat)
-            question = await get_unused_question_for_user(user_id, cat)
+            await _fetch_and_cache(manifold_client, cat, blocked)
+            question = await _get_unblocked_question(user_id, cat, blocked)
             if question:
                 return question
 

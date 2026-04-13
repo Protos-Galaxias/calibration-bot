@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from aiogram import Router, types
 from aiogram.filters import Command
 
-from bot.db.queries.users import get_user, update_user_categories, update_user_settings
+from bot.db.queries.users import get_blocked_tags, get_user, update_user_categories, update_user_settings
 from bot.models.user import ALL_CATEGORY_SLUGS, CATEGORIES
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def _tz_label(tz_name: str) -> str:
     return f"{tz_name} (UTC{sign}{hours})"
 
 
-def _settings_keyboard(user_categories: list[str], daily_hour: int, timezone: str) -> types.InlineKeyboardMarkup:
+def _settings_keyboard(user_categories: list[str], daily_hour: int, timezone: str, blocked_count: int = 0) -> types.InlineKeyboardMarkup:
     rows: list[list[types.InlineKeyboardButton]] = []
 
     rows.append([types.InlineKeyboardButton(
@@ -70,6 +70,11 @@ def _settings_keyboard(user_categories: list[str], daily_hour: int, timezone: st
         types.InlineKeyboardButton(text="🌍 →", callback_data="settings_tz:next"),
     ])
 
+    rows.append([types.InlineKeyboardButton(
+        text=f"🏷 Заблокированные теги ({blocked_count})",
+        callback_data="settings:blocked_tags",
+    )])
+
     return types.InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -85,7 +90,8 @@ async def cmd_settings(message: types.Message) -> None:
         return
 
     cats = json.loads(user["categories"])
-    kb = _settings_keyboard(cats, user["daily_hour"], user["timezone"])
+    blocked = await get_blocked_tags(message.from_user.id)
+    kb = _settings_keyboard(cats, user["daily_hour"], user["timezone"], len(blocked))
     await message.answer("⚙️ <b>Настройки</b>", parse_mode="HTML", reply_markup=kb)
 
 
@@ -110,7 +116,8 @@ async def on_settings_cat(callback: types.CallbackQuery) -> None:
         cats.append(slug)
 
     await update_user_categories(callback.from_user.id, cats)
-    kb = _settings_keyboard(cats, user["daily_hour"], user["timezone"])
+    blocked = await get_blocked_tags(callback.from_user.id)
+    kb = _settings_keyboard(cats, user["daily_hour"], user["timezone"], len(blocked))
     await callback.message.edit_reply_markup(reply_markup=kb)
     await callback.answer()
 
@@ -133,7 +140,8 @@ async def on_settings_hour(callback: types.CallbackQuery) -> None:
 
     await update_user_settings(callback.from_user.id, daily_hour=hour)
     cats = json.loads(user["categories"])
-    kb = _settings_keyboard(cats, hour, user["timezone"])
+    blocked = await get_blocked_tags(callback.from_user.id)
+    kb = _settings_keyboard(cats, hour, user["timezone"], len(blocked))
     await callback.message.edit_reply_markup(reply_markup=kb)
     await callback.answer(f"Время вопроса: {hour}:00")
 
@@ -162,6 +170,51 @@ async def on_settings_tz(callback: types.CallbackQuery) -> None:
     new_tz = TIMEZONES[idx]
     await update_user_settings(callback.from_user.id, timezone=new_tz)
     cats = json.loads(user["categories"])
-    kb = _settings_keyboard(cats, user["daily_hour"], new_tz)
+    blocked = await get_blocked_tags(callback.from_user.id)
+    kb = _settings_keyboard(cats, user["daily_hour"], new_tz, len(blocked))
     await callback.message.edit_reply_markup(reply_markup=kb)
     await callback.answer(f"Таймзона: {_tz_label(new_tz)}")
+
+
+@router.callback_query(lambda c: c.data == "settings:blocked_tags")
+async def on_settings_blocked_tags(callback: types.CallbackQuery) -> None:
+    if not callback.from_user or not callback.message:
+        return
+
+    blocked = await get_blocked_tags(callback.from_user.id)
+    if not blocked:
+        await callback.answer("Нет заблокированных тегов", show_alert=True)
+
+        return
+
+    rows = []
+    for tag in blocked:
+        label = tag.replace("-", " ").title()
+        rows.append([types.InlineKeyboardButton(
+            text=f"❌ {label}",
+            callback_data=f"unblock_tag:{tag}",
+        )])
+    rows.append([types.InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")])
+    kb = types.InlineKeyboardMarkup(inline_keyboard=rows)
+    await callback.message.edit_text(
+        "🏷 <b>Заблокированные теги</b>\nНажми, чтобы разблокировать:",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "settings:back")
+async def on_settings_back(callback: types.CallbackQuery) -> None:
+    if not callback.from_user or not callback.message:
+        return
+
+    user = await get_user(callback.from_user.id)
+    if not user:
+        return
+
+    cats = json.loads(user["categories"])
+    blocked = await get_blocked_tags(callback.from_user.id)
+    kb = _settings_keyboard(cats, user["daily_hour"], user["timezone"], len(blocked))
+    await callback.message.edit_text("⚙️ <b>Настройки</b>", parse_mode="HTML", reply_markup=kb)
+    await callback.answer()

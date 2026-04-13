@@ -128,3 +128,39 @@ async def update_streak(user_id: int, today_iso: str) -> Row:
 async def update_phase(user_id: int, phase: str) -> None:
     async with get_db() as db:
         await db.execute("UPDATE users SET phase = ? WHERE id = ?", (phase, user_id))
+
+
+async def get_blocked_tags(telegram_id: int) -> list[str]:
+    async with get_db() as db:
+        cursor = await db.execute(
+            "SELECT blocked_tags FROM users WHERE telegram_id = ?", (telegram_id,)
+        )
+        row = await cursor.fetchone()
+        if not row or not row["blocked_tags"]:
+            return []
+
+        return json.loads(row["blocked_tags"])
+
+
+async def add_blocked_tag(telegram_id: int, tag: str) -> None:
+    tags = await get_blocked_tags(telegram_id)
+    if tag in tags:
+        return
+    tags.append(tag)
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE users SET blocked_tags = ? WHERE telegram_id = ?",
+            (json.dumps(tags), telegram_id),
+        )
+
+
+async def remove_blocked_tag(telegram_id: int, tag: str) -> None:
+    tags = await get_blocked_tags(telegram_id)
+    if tag not in tags:
+        return
+    tags.remove(tag)
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE users SET blocked_tags = ? WHERE telegram_id = ?",
+            (json.dumps(tags), telegram_id),
+        )
