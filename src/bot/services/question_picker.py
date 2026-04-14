@@ -6,7 +6,7 @@ from aiosqlite import Row
 
 from bot.db.queries.questions import count_cached_by_category, get_unused_question_for_user, question_exists, upsert_question
 from bot.db.queries.users import get_blocked_tags
-from bot.services.categorizer import categorize, is_meta_question
+from bot.services.categorizer import categorize, is_meta_question, is_personal_question
 from bot.services.manifold import ManifoldClient
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,8 @@ async def _fetch_and_cache(client: ManifoldClient, target_category: str, blocked
             if m.probability < MIN_PROB or m.probability > MAX_PROB:
                 continue
             if is_meta_question(m.question, m.group_slugs):
+                continue
+            if is_personal_question(m.question, m.group_slugs):
                 continue
             if _has_blocked_tag(m.group_slugs, blocked_tags or set()):
                 continue

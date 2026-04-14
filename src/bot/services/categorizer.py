@@ -48,6 +48,14 @@ _META_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+_PERSONAL_SLUGS = {"personal", "personal-goals", "personal-life"}
+_PERSONAL_PATTERNS = re.compile(
+    r"(?:^|\b)(will i|am i|can i|do i|should i|have i|would i|shall i|could i|did i|"
+    r"my personal|my relationship|my career|my job|my salary|my weight|"
+    r"i will|i am going to|i\'ll|i\'m going to)\b",
+    re.IGNORECASE,
+)
+
 _VALID_CATEGORIES = frozenset({"politics", "technology", "sports", "culture", "business", "misc"})
 
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -58,6 +66,14 @@ def is_meta_question(question_text: str, group_slugs: list[str]) -> bool:
         return True
 
     return bool(_META_PATTERNS.search(question_text))
+
+
+def is_personal_question(question_text: str, group_slugs: list[str]) -> bool:
+    slugs_lower = {s.lower() for s in group_slugs}
+    if _PERSONAL_SLUGS & slugs_lower:
+        return True
+
+    return bool(_PERSONAL_PATTERNS.search(question_text))
 
 
 def categorize_by_slugs(group_slugs: list[str]) -> str | None:
