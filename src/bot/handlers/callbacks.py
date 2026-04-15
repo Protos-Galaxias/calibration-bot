@@ -5,7 +5,7 @@ from aiogram import Router, types
 
 from bot.db.queries.pending import clear_pending_question, get_pending_question_id
 from bot.db.queries.questions import get_question_by_id
-from bot.db.queries.skipped import record_skip
+from bot.db.queries.skipped import record_skip, record_skipped_question
 from bot.db.queries.users import add_blocked_tag, get_blocked_tags, get_user, remove_blocked_tag, update_user_categories
 from bot.models.user import CATEGORIES
 
@@ -61,6 +61,8 @@ async def on_skip_topic(callback: types.CallbackQuery) -> None:
         return
 
     await record_skip(user["id"], category)
+    if q_id:
+        await record_skipped_question(user["id"], q_id)
 
     question_tags: list[str] = []
     if q_id:

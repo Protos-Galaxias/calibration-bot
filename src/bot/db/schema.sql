@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS skipped_categories (
     PRIMARY KEY(user_id, category)
 );
 
+CREATE TABLE IF NOT EXISTS skipped_questions (
+    user_id INTEGER REFERENCES users(id),
+    question_id INTEGER REFERENCES questions(id),
+    skipped_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY(user_id, question_id)
+);
+
 CREATE TABLE IF NOT EXISTS pending_questions (
     telegram_id INTEGER PRIMARY KEY,
     question_id INTEGER NOT NULL REFERENCES questions(id),

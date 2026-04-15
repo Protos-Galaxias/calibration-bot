@@ -55,10 +55,11 @@ async def get_unused_question_for_user(user_id: int, category: str) -> Row | Non
             WHERE q.category = ?
               AND q.is_resolved = 0
               AND q.id NOT IN (SELECT question_id FROM answers WHERE user_id = ?)
+              AND q.id NOT IN (SELECT question_id FROM skipped_questions WHERE user_id = ?)
             ORDER BY RANDOM()
             LIMIT 1
             """,
-            (category, user_id),
+            (category, user_id, user_id),
         )
 
         return await cursor.fetchone()
