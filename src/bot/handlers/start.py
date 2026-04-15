@@ -6,8 +6,7 @@ from aiogram.filters import CommandStart
 
 from bot.config import settings
 from bot.db.queries.users import create_user, get_user
-from bot.helpers.formatting import format_question_message
-from bot.models.user import ALL_CATEGORY_SLUGS, CATEGORIES
+from bot.models.user import ALL_SUBCATEGORY_SLUGS, SUBCATEGORIES
 from bot.services.question_picker import pick_question
 
 logger = logging.getLogger(__name__)
@@ -25,26 +24,48 @@ WELCOME_TEXT = (
 )
 
 CATEGORIES_TEXT = (
-    "Выбери категории, которые тебе интересны (минимум 2).\n"
-    "Нажми на категорию, чтобы включить/выключить её, затем нажми «Готово»."
+    "Выбери подкатегории, которые тебе интересны (минимум 2).\n"
+    "Нажми на подкатегорию, чтобы включить/выключить её, затем нажми «Готово»."
 )
 
 
 def _build_keyboard(selected: set[str]) -> types.InlineKeyboardMarkup:
     rows: list[list[types.InlineKeyboardButton]] = []
-    for slug, label in CATEGORIES.items():
-        check = "✅" if slug in selected else "⬜"
-        rows.append([
-            types.InlineKeyboardButton(
-                text=f"{check} {label}",
-                callback_data=f"cat_toggle:{slug}",
-            )
-        ])
+    for parent_slug, grp in SUBCATEGORIES.items():
+        if not grp["children"]:
+            check = "✅" if parent_slug in selected else "⬜"
+            rows.append([types.InlineKeyboardButton(
+                text=f"{check} {grp['icon']} {grp['label']}",
+                callback_data=f"cat_toggle:{parent_slug}",
+            )])
+            continue
+
+        rows.append([types.InlineKeyboardButton(
+            text=f"── {grp['icon']} {grp['label']} ──",
+            callback_data="cat_noop",
+        )])
+        for sub_slug, sub_label in grp["children"].items():
+            check = "✅" if sub_slug in selected else "⬜"
+            rows.append([types.InlineKeyboardButton(
+                text=f"  {check} {sub_label}",
+                callback_data=f"cat_toggle:{sub_slug}",
+            )])
+
     rows.append([
         types.InlineKeyboardButton(text="✔️ Готово", callback_data="cat_done"),
     ])
 
     return types.InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _all_slugs() -> set[str]:
+    """All selectable slugs: subcategories + parentless categories like misc."""
+    result = set(ALL_SUBCATEGORY_SLUGS)
+    for slug, grp in SUBCATEGORIES.items():
+        if not grp["children"]:
+            result.add(slug)
+
+    return result
 
 
 @router.message(CommandStart())
@@ -60,12 +81,17 @@ async def cmd_start(message: types.Message) -> None:
 
     await message.answer(WELCOME_TEXT, parse_mode="HTML")
 
-    selected = set(ALL_CATEGORY_SLUGS)
+    selected = _all_slugs()
     kb = _build_keyboard(selected)
-    msg = await message.answer(CATEGORIES_TEXT, reply_markup=kb, parse_mode="HTML")
+    await message.answer(CATEGORIES_TEXT, reply_markup=kb, parse_mode="HTML")
 
 
 _user_selections: dict[int, set[str]] = {}
+
+
+@router.callback_query(lambda c: c.data == "cat_noop")
+async def on_cat_noop(callback: types.CallbackQuery) -> None:
+    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cat_toggle:"))
@@ -77,7 +103,7 @@ async def on_cat_toggle(callback: types.CallbackQuery) -> None:
     uid = callback.from_user.id
 
     if uid not in _user_selections:
-        _user_selections[uid] = set(ALL_CATEGORY_SLUGS)
+        _user_selections[uid] = _all_slugs()
 
     sel = _user_selections[uid]
     if slug in sel:
@@ -96,15 +122,17 @@ async def on_cat_done(callback: types.CallbackQuery) -> None:
         return
 
     uid = callback.from_user.id
-    sel = _user_selections.pop(uid, set(ALL_CATEGORY_SLUGS))
+    sel = _user_selections.pop(uid, _all_slugs())
 
     if len(sel) < 2:
-        await callback.answer("Выбери минимум 2 категории!", show_alert=True)
+        await callback.answer("Выбери минимум 2 подкатегории!", show_alert=True)
         _user_selections[uid] = sel
 
         return
 
-    categories = [s for s in ALL_CATEGORY_SLUGS if s in sel]
+    all_ordered = list(_all_slugs())
+    categories = [s for s in all_ordered if s in sel]
+
     user_row = await create_user(
         telegram_id=uid,
         categories=categories,
@@ -112,7 +140,7 @@ async def on_cat_done(callback: types.CallbackQuery) -> None:
         daily_hour=settings.daily_question_default_hour,
     )
 
-    await callback.message.edit_text("✅ Отлично! Категории сохранены. Сейчас пришлю первый вопрос...")
+    await callback.message.edit_text("✅ Отлично! Подкатегории сохранены. Сейчас пришлю первый вопрос...")
     await callback.answer()
 
     from bot.main import manifold_client

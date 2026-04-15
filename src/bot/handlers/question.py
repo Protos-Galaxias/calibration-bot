@@ -52,6 +52,8 @@ async def send_question_to_user(chat_id: int, user_row, question_row) -> None:
     if not tags:
         tags = await _fetch_tags_from_manifold(question_row["manifold_id"], question_row["id"])
 
+    subcategory = question_row["subcategory"] if "subcategory" in question_row.keys() else None
+
     text = format_question_message(
         question_text=question_text,
         category=question_row["category"],
@@ -59,6 +61,7 @@ async def send_question_to_user(chat_id: int, user_row, question_row) -> None:
         phase=user_row["phase"],
         question_text_ru=text_ru,
         tags=tags,
+        subcategory=subcategory,
     )
     kb = _skip_button(question_row["category"])
     await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)

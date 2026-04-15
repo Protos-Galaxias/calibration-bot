@@ -1,10 +1,19 @@
-from bot.models.user import CATEGORIES
+from bot.models.user import CATEGORIES, subcategory_label
 
 CALIBRATION_GOAL = 50
 
 
 def category_label(slug: str) -> str:
     return CATEGORIES.get(slug, slug)
+
+
+def full_category_label(category: str, subcategory: str | None) -> str:
+    parent = category_label(category)
+    if not subcategory:
+        return parent
+    sub = subcategory_label(subcategory)
+
+    return f"{parent} → {sub}"
 
 
 def _format_tags(tags: list[str]) -> str:
@@ -23,9 +32,10 @@ def format_question_message(
     phase: str,
     question_text_ru: str | None = None,
     tags: list[str] | None = None,
+    subcategory: str | None = None,
 ) -> str:
     counter = f"Калибровка: {total_answers}/{CALIBRATION_GOAL}" if phase == "calibration" else f"Прогнозов: {total_answers}"
-    cat = category_label(category)
+    cat = full_category_label(category, subcategory)
     tag_line = _format_tags(tags or [])
 
     lines = [f"🔮 <b>Вопрос дня</b> · {counter}\n"]

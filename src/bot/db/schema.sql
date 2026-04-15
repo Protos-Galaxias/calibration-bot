@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS questions (
     question_text TEXT NOT NULL,
     question_text_ru TEXT,
     category TEXT NOT NULL,
+    subcategory TEXT,
     tags TEXT DEFAULT '[]',
     market_prob REAL,
     close_time TEXT,

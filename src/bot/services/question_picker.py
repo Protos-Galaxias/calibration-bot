@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 
 from aiosqlite import Row
 
-from bot.db.queries.questions import count_cached_by_category, get_unused_question_for_user, question_exists, upsert_question
+from bot.db.queries.questions import count_cached_by_subcategory, get_unused_question_for_user, question_exists, upsert_question
 from bot.db.queries.users import get_blocked_tags
+from bot.models.user import parent_category
 from bot.services.categorizer import categorize, is_meta_question, is_personal_question
 from bot.services.manifold import ManifoldClient
 
@@ -18,14 +19,37 @@ MIN_HORIZON_DAYS = 3
 MAX_HORIZON_DAYS = 180
 CACHE_THRESHOLD = 5
 
-CATEGORY_TOPIC_SLUGS: dict[str, list[str]] = {
-    "politics": ["politics", "us-politics", "elections", "geopolitics"],
-    "technology": ["technology", "ai", "science", "crypto"],
-    "sports": ["sports", "nfl", "nba", "soccer"],
-    "culture": ["entertainment", "movies", "music", "gaming"],
-    "business": ["business", "economics", "finance", "markets"],
+SUBCATEGORY_TOPIC_SLUGS: dict[str, list[str]] = {
+    # Politics
+    "us-politics": ["us-politics", "trump", "congress"],
+    "eu-politics": ["eu-politics", "uk-politics"],
+    "russia-ukraine": ["russia", "ukraine"],
+    "china-asia": ["china", "india", "asia"],
+    "elections": ["elections", "2024-us-presidential-election"],
+    "geopolitics": ["geopolitics", "international-relations", "nato"],
+    # Technology
+    "ai-ml": ["ai", "artificial-intelligence", "machine-learning"],
+    "crypto": ["crypto", "bitcoin", "ethereum"],
+    "space": ["space", "spacex", "nasa"],
+    "biotech": ["biotech", "science", "medicine"],
+    "software": ["technology", "programming", "software"],
+    # Sports
+    "football-soccer": ["soccer", "premier-league", "champions-league"],
+    "basketball": ["nba", "basketball"],
+    "nfl": ["nfl", "american-football"],
+    "other-sports": ["sports", "baseball", "tennis", "f1"],
+    # Culture
+    "movies-tv": ["movies", "tv", "entertainment"],
+    "music": ["music", "spotify"],
+    "gaming": ["gaming", "video-games"],
+    # Business
+    "stock-markets": ["stock-market", "markets", "finance"],
+    "macro": ["economics", "inflation", "fed"],
+    "companies": ["business", "startups", "venture-capital"],
+    # Misc
     "misc": [],
 }
+
 
 def _has_blocked_tag(group_slugs: list[str], blocked_tags: set[str]) -> bool:
     if not blocked_tags:
@@ -35,12 +59,12 @@ def _has_blocked_tag(group_slugs: list[str], blocked_tags: set[str]) -> bool:
     return bool(slugs & blocked_tags)
 
 
-async def _fetch_and_cache(client: ManifoldClient, target_category: str, blocked_tags: set[str] | None = None) -> int:
+async def _fetch_and_cache(client: ManifoldClient, target_subcategory: str, blocked_tags: set[str] | None = None) -> int:
     """Fetch markets from Manifold, filter, categorize, and store. Return count of new questions cached."""
     now = datetime.now(timezone.utc)
     cached = 0
 
-    topic_slugs = CATEGORY_TOPIC_SLUGS.get(target_category, [])
+    topic_slugs = SUBCATEGORY_TOPIC_SLUGS.get(target_subcategory, [])
     searches: list[str | None] = [None]
     for slug in topic_slugs[:3]:
         searches.append(slug)
@@ -81,12 +105,13 @@ async def _fetch_and_cache(client: ManifoldClient, target_category: str, blocked
             if await question_exists(m.id):
                 continue
 
-            category = await categorize(m.question, m.group_slugs)
+            category, subcategory = await categorize(m.question, m.group_slugs)
 
             await upsert_question(
                 manifold_id=m.id,
                 question_text=m.question,
                 category=category,
+                subcategory=subcategory,
                 market_prob=m.probability,
                 close_time=close_dt.isoformat(),
                 volume=m.volume,
@@ -98,20 +123,20 @@ async def _fetch_and_cache(client: ManifoldClient, target_category: str, blocked
         if cached >= CACHE_THRESHOLD:
             break
 
-    logger.info("Cached %d new questions from Manifold (target: %s)", cached, target_category)
+    logger.info("Cached %d new questions from Manifold (target subcat: %s)", cached, target_subcategory)
 
     return cached
 
 
-def _pick_category(user_categories: list[str], answer_counts: dict[str, int]) -> str:
-    """Round-robin: pick the category with the fewest answers."""
+def _pick_subcategory(user_subcategories: list[str], answer_counts: dict[str, int]) -> str:
+    """Round-robin: pick the subcategory with the fewest answers."""
     min_count = float("inf")
-    best = user_categories[0]
-    for cat in user_categories:
-        cnt = answer_counts.get(cat, 0)
+    best = user_subcategories[0]
+    for subcat in user_subcategories:
+        cnt = answer_counts.get(subcat, 0)
         if cnt < min_count:
             min_count = cnt
-            best = cat
+            best = subcat
 
     return best
 
@@ -125,18 +150,24 @@ def _matches_blocked_tags(question_row: Row, blocked: set[str]) -> bool:
     return bool(tags & blocked)
 
 
-async def _get_unblocked_question(user_id: int, category: str, blocked: set[str]) -> Row | None:
+async def _get_unblocked_question(user_id: int, subcategory: str, blocked: set[str]) -> Row | None:
     for _ in range(20):
-        q = await get_unused_question_for_user(user_id, category)
+        q = await get_unused_question_for_user(user_id, subcategory)
         if not q:
             return None
         if not _matches_blocked_tags(q, blocked):
             return q
-        # mark as "seen" by skipping — just try next random one
-        # since ORDER BY RANDOM() we'll get different ones each time
-        # but we need to exclude this one; simplest: just loop and hope
-        # In practice blocked tags cover few questions
+
     return None
+
+
+def _effective_subcategory(question_row: Row) -> str:
+    """Get subcategory from question row, falling back to parent category."""
+    subcat = question_row["subcategory"] if "subcategory" in question_row.keys() else None
+    if subcat:
+        return subcat
+
+    return question_row["category"]
 
 
 async def pick_question(
@@ -144,7 +175,7 @@ async def pick_question(
     manifold_client: ManifoldClient,
 ) -> Row | None:
     """Pick a question for the user. Returns a question Row or None if nothing available."""
-    categories: list[str] = json.loads(user_row["categories"])
+    subcategories: list[str] = json.loads(user_row["categories"])
     user_id: int = user_row["id"]
     tg_id: int = user_row["telegram_id"]
 
@@ -155,41 +186,41 @@ async def pick_question(
     async with get_db() as db:
         cursor = await db.execute(
             """
-            SELECT q.category, COUNT(*) as cnt
+            SELECT COALESCE(q.subcategory, q.category) as effective_subcat, COUNT(*) as cnt
             FROM answers a
             JOIN questions q ON q.id = a.question_id
             WHERE a.user_id = ?
-            GROUP BY q.category
+            GROUP BY effective_subcat
             """,
             (user_id,),
         )
         rows = await cursor.fetchall()
 
-    answer_counts = {r["category"]: r["cnt"] for r in rows}
-    target_cat = _pick_category(categories, answer_counts)
+    answer_counts = {r["effective_subcat"]: r["cnt"] for r in rows}
+    target_subcat = _pick_subcategory(subcategories, answer_counts)
 
-    question = await _get_unblocked_question(user_id, target_cat, blocked)
+    question = await _get_unblocked_question(user_id, target_subcat, blocked)
     if question:
         return question
 
-    cache_count = await count_cached_by_category(target_cat)
+    cache_count = await count_cached_by_subcategory(target_subcat)
     if cache_count < CACHE_THRESHOLD:
-        await _fetch_and_cache(manifold_client, target_cat, blocked)
-        question = await _get_unblocked_question(user_id, target_cat, blocked)
+        await _fetch_and_cache(manifold_client, target_subcat, blocked)
+        question = await _get_unblocked_question(user_id, target_subcat, blocked)
         if question:
             return question
 
-    for cat in categories:
-        if cat == target_cat:
+    for subcat in subcategories:
+        if subcat == target_subcat:
             continue
-        question = await _get_unblocked_question(user_id, cat, blocked)
+        question = await _get_unblocked_question(user_id, subcat, blocked)
         if question:
             return question
 
-        cache_count = await count_cached_by_category(cat)
+        cache_count = await count_cached_by_subcategory(subcat)
         if cache_count < CACHE_THRESHOLD:
-            await _fetch_and_cache(manifold_client, cat, blocked)
-            question = await _get_unblocked_question(user_id, cat, blocked)
+            await _fetch_and_cache(manifold_client, subcat, blocked)
+            question = await _get_unblocked_question(user_id, subcat, blocked)
             if question:
                 return question
 

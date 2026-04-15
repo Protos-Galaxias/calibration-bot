@@ -1,3 +1,4 @@
+import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,6 +11,32 @@ from bot.config import settings
 logger = logging.getLogger(__name__)
 
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
+
+
+async def _migrate_user_categories(db: aiosqlite.Connection) -> None:
+    """Expand old parent-level category slugs into subcategory slugs."""
+    from bot.models.user import ALL_CATEGORY_SLUGS, expand_parent_to_children
+
+    db.row_factory = aiosqlite.Row
+    cursor = await db.execute("SELECT id, categories FROM users")
+    rows = await cursor.fetchall()
+
+    for row in rows:
+        cats: list[str] = json.loads(row["categories"])
+        expanded: list[str] = []
+        needs_update = False
+        for slug in cats:
+            if slug in ALL_CATEGORY_SLUGS:
+                expanded.extend(expand_parent_to_children(slug))
+                needs_update = True
+            else:
+                expanded.append(slug)
+
+        if needs_update:
+            await db.execute(
+                "UPDATE users SET categories = ? WHERE id = ?",
+                (json.dumps(expanded), row["id"]),
+            )
 
 
 async def init_db() -> None:
@@ -26,6 +53,7 @@ async def init_db() -> None:
         migrations: list[tuple[str, str, str]] = [
             ("questions", "tags", "'[]'"),
             ("questions", "question_text_ru", "NULL"),
+            ("questions", "subcategory", "NULL"),
             ("users", "blocked_tags", "'[]'"),
         ]
         for table, col, default in migrations:
@@ -34,6 +62,7 @@ async def init_db() -> None:
             except Exception:
                 pass
 
+        await _migrate_user_categories(db)
         await db.commit()
 
     logger.info("Database initialized at %s", path)

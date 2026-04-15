@@ -7,7 +7,7 @@ from aiogram import Router, types
 from aiogram.filters import Command
 
 from bot.db.queries.users import get_blocked_tags, get_user, update_user_categories, update_user_settings
-from bot.models.user import ALL_CATEGORY_SLUGS, CATEGORIES
+from bot.models.user import ALL_SUBCATEGORY_SLUGS, SUBCATEGORIES
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -40,6 +40,15 @@ def _tz_label(tz_name: str) -> str:
     return f"{tz_name} (UTC{sign}{hours})"
 
 
+def _all_slugs() -> set[str]:
+    result = set(ALL_SUBCATEGORY_SLUGS)
+    for slug, grp in SUBCATEGORIES.items():
+        if not grp["children"]:
+            result.add(slug)
+
+    return result
+
+
 def _settings_keyboard(user_categories: list[str], daily_hour: int, timezone: str, blocked_count: int = 0) -> types.InlineKeyboardMarkup:
     rows: list[list[types.InlineKeyboardButton]] = []
 
@@ -53,12 +62,25 @@ def _settings_keyboard(user_categories: list[str], daily_hour: int, timezone: st
         callback_data="settings:noop",
     )])
 
-    for slug, label in CATEGORIES.items():
-        check = "✅" if slug in user_categories else "⬜"
+    for parent_slug, grp in SUBCATEGORIES.items():
+        if not grp["children"]:
+            check = "✅" if parent_slug in user_categories else "⬜"
+            rows.append([types.InlineKeyboardButton(
+                text=f"{check} {grp['icon']} {grp['label']}",
+                callback_data=f"settings_cat:{parent_slug}",
+            )])
+            continue
+
         rows.append([types.InlineKeyboardButton(
-            text=f"{check} {label}",
-            callback_data=f"settings_cat:{slug}",
+            text=f"── {grp['icon']} {grp['label']} ──",
+            callback_data="settings:noop",
         )])
+        for sub_slug, sub_label in grp["children"].items():
+            check = "✅" if sub_slug in user_categories else "⬜"
+            rows.append([types.InlineKeyboardButton(
+                text=f"  {check} {sub_label}",
+                callback_data=f"settings_cat:{sub_slug}",
+            )])
 
     rows.append([
         types.InlineKeyboardButton(text="⏰ −1ч", callback_data="settings_hour:dec"),
@@ -108,7 +130,7 @@ async def on_settings_cat(callback: types.CallbackQuery) -> None:
     cats: list[str] = json.loads(user["categories"])
     if slug in cats:
         if len(cats) <= 2:
-            await callback.answer("Минимум 2 категории!", show_alert=True)
+            await callback.answer("Минимум 2 подкатегории!", show_alert=True)
 
             return
         cats.remove(slug)
