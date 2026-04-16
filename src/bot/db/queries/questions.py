@@ -54,6 +54,7 @@ async def get_unused_question_for_user(user_id: int, subcategory: str) -> Row | 
 
     Matches by subcategory first; falls back to parent category for old
     questions that don't have a subcategory assigned yet.
+    Skips questions whose close_time has already passed.
     """
     from bot.models.user import parent_category
 
@@ -65,9 +66,10 @@ async def get_unused_question_for_user(user_id: int, subcategory: str) -> Row | 
             SELECT q.* FROM questions q
             WHERE (q.subcategory = ? OR (q.subcategory IS NULL AND q.category = ?))
               AND q.is_resolved = 0
+              AND (q.close_time IS NULL OR q.close_time > datetime('now'))
               AND q.id NOT IN (SELECT question_id FROM answers WHERE user_id = ?)
               AND q.id NOT IN (SELECT question_id FROM skipped_questions WHERE user_id = ?)
-            ORDER BY RANDOM()
+            ORDER BY q.close_time ASC
             LIMIT 1
             """,
             (subcategory, parent, user_id, user_id),

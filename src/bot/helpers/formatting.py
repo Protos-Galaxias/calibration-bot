@@ -56,17 +56,19 @@ def format_question_message(
     return "\n".join(lines)
 
 
-def format_answer_response(user_prob: float, market_prob: float) -> str:
+def format_answer_response(user_prob: float, pending_count: int) -> str:
     u = int(user_prob * 100)
-    m = int(market_prob * 100)
-    diff = abs(u - m)
 
-    return (
-        f"📝 Твоя оценка: <b>{u}%</b>\n"
-        f"📊 Рынок (Manifold): <b>{m}%</b>\n"
-        f"📏 Расхождение: {diff} п.п.\n\n"
-        f"Следующий вопрос → /question"
-    )
+    lines = [f"📝 Твоя оценка: <b>{u}%</b> — записано!"]
+
+    if pending_count > 0:
+        lines.append(f"\n⏳ Ждут резолюции: {pending_count} прогнозов")
+        lines.append("Как вопросы закроются — узнаешь, насколько точен был.")
+
+    lines.append(f"\n📊 Результаты по закрытым → /stats")
+    lines.append(f"Следующий вопрос → /question")
+
+    return "\n".join(lines)
 
 
 def format_resolution(

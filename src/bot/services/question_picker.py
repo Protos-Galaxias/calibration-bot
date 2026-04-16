@@ -15,8 +15,10 @@ logger = logging.getLogger(__name__)
 MIN_VOLUME = 100
 MIN_PROB = 0.10
 MAX_PROB = 0.90
-MIN_HORIZON_DAYS = 3
-MAX_HORIZON_DAYS = 180
+STALE_PROB_LOW = 0.05
+STALE_PROB_HIGH = 0.95
+MIN_HORIZON_DAYS = 1
+MAX_HORIZON_DAYS = 14
 CACHE_THRESHOLD = 5
 
 SUBCATEGORY_TOPIC_SLUGS: dict[str, list[str]] = {
@@ -71,7 +73,7 @@ async def _fetch_and_cache(client: ManifoldClient, target_subcategory: str, bloc
 
     for topic_slug in searches:
         try:
-            markets = await client.search_markets(sort="liquidity", limit=100, topic_slug=topic_slug)
+            markets = await client.search_markets(sort="close-date", limit=100, topic_slug=topic_slug)
         except Exception:
             logger.warning("Failed to fetch markets for topic_slug=%s, skipping", topic_slug)
             continue
@@ -170,6 +172,37 @@ def _effective_subcategory(question_row: Row) -> str:
     return question_row["category"]
 
 
+_MAX_FRESHNESS_ATTEMPTS = 5
+
+
+async def _is_still_interesting(question_row: Row, client: ManifoldClient) -> bool:
+    """Check live probability — skip markets where the outcome is already obvious."""
+    try:
+        prob = await client.get_prob(question_row["manifold_id"])
+    except Exception:
+        return True
+
+    return STALE_PROB_LOW <= prob <= STALE_PROB_HIGH
+
+
+async def _pick_fresh_question(
+    user_id: int,
+    subcategory: str,
+    blocked: set[str],
+    client: ManifoldClient,
+) -> Row | None:
+    """Get an unblocked question and verify its live prob is still interesting."""
+    for _ in range(_MAX_FRESHNESS_ATTEMPTS):
+        q = await _get_unblocked_question(user_id, subcategory, blocked)
+        if not q:
+            return None
+        if await _is_still_interesting(q, client):
+            return q
+        logger.info("Skipping stale market %s (prob moved to extreme)", q["manifold_id"])
+
+    return None
+
+
 async def pick_question(
     user_row: Row,
     manifold_client: ManifoldClient,
@@ -199,28 +232,28 @@ async def pick_question(
     answer_counts = {r["effective_subcat"]: r["cnt"] for r in rows}
     target_subcat = _pick_subcategory(subcategories, answer_counts)
 
-    question = await _get_unblocked_question(user_id, target_subcat, blocked)
+    question = await _pick_fresh_question(user_id, target_subcat, blocked, manifold_client)
     if question:
         return question
 
     cache_count = await count_cached_by_subcategory(target_subcat)
     if cache_count < CACHE_THRESHOLD:
         await _fetch_and_cache(manifold_client, target_subcat, blocked)
-        question = await _get_unblocked_question(user_id, target_subcat, blocked)
+        question = await _pick_fresh_question(user_id, target_subcat, blocked, manifold_client)
         if question:
             return question
 
     for subcat in subcategories:
         if subcat == target_subcat:
             continue
-        question = await _get_unblocked_question(user_id, subcat, blocked)
+        question = await _pick_fresh_question(user_id, subcat, blocked, manifold_client)
         if question:
             return question
 
         cache_count = await count_cached_by_subcategory(subcat)
         if cache_count < CACHE_THRESHOLD:
             await _fetch_and_cache(manifold_client, subcat, blocked)
-            question = await _get_unblocked_question(user_id, subcat, blocked)
+            question = await _pick_fresh_question(user_id, subcat, blocked, manifold_client)
             if question:
                 return question
 

@@ -28,6 +28,22 @@ async def get_answers_for_question(question_id: int) -> list[Row]:
         return await cursor.fetchall()  # type: ignore[return-value]
 
 
+async def count_pending_answers(user_id: int) -> int:
+    """Count user answers that haven't been resolved yet."""
+    async with get_db() as db:
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) FROM answers a
+            JOIN questions q ON q.id = a.question_id
+            WHERE a.user_id = ? AND q.is_resolved = 0
+            """,
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+
+        return row[0] if row else 0  # type: ignore[index]
+
+
 async def count_answers_today(user_id: int, today_iso: str) -> int:
     async with get_db() as db:
         cursor = await db.execute(
