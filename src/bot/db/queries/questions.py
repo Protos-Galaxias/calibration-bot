@@ -56,6 +56,16 @@ async def get_unused_question_for_user(user_id: int, subcategory: str) -> Row | 
     questions that don't have a subcategory assigned yet.
     Skips questions whose close_time has already passed.
     """
+    rows = await get_unused_questions_for_user(user_id, subcategory, limit=1)
+
+    return rows[0] if rows else None
+
+
+async def get_unused_questions_for_user(user_id: int, subcategory: str, *, limit: int = 20) -> list[Row]:
+    """Get unresolved questions the user hasn't answered or skipped."""
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+
     from bot.models.user import parent_category
 
     parent = parent_category(subcategory)
@@ -66,16 +76,22 @@ async def get_unused_question_for_user(user_id: int, subcategory: str) -> Row | 
             SELECT q.* FROM questions q
             WHERE (q.subcategory = ? OR (q.subcategory IS NULL AND q.category = ?))
               AND q.is_resolved = 0
-              AND (q.close_time IS NULL OR q.close_time > datetime('now'))
-              AND q.id NOT IN (SELECT question_id FROM answers WHERE user_id = ?)
-              AND q.id NOT IN (SELECT question_id FROM skipped_questions WHERE user_id = ?)
-            ORDER BY q.close_time ASC
-            LIMIT 1
+              AND (q.close_time IS NULL OR datetime(q.close_time) > datetime('now'))
+              AND NOT EXISTS (
+                  SELECT 1 FROM answers a
+                  WHERE a.question_id = q.id AND a.user_id = ?
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM skipped_questions sq
+                  WHERE sq.question_id = q.id AND sq.user_id = ?
+              )
+            ORDER BY datetime(q.close_time) ASC
+            LIMIT ?
             """,
-            (subcategory, parent, user_id, user_id),
+            (subcategory, parent, user_id, user_id, limit),
         )
 
-        return await cursor.fetchone()
+        return await cursor.fetchall()  # type: ignore[return-value]
 
 
 async def get_unresolved_with_answers() -> list[Row]:
@@ -118,6 +134,34 @@ async def count_cached_by_subcategory(subcategory: str) -> int:
         cursor = await db.execute(
             "SELECT COUNT(*) FROM questions WHERE (subcategory = ? OR (subcategory IS NULL AND category = ?)) AND is_resolved = 0",
             (subcategory, parent),
+        )
+        row = await cursor.fetchone()
+
+        return row[0] if row else 0  # type: ignore[index]
+
+
+async def count_usable_cached_by_subcategory_for_user(user_id: int, subcategory: str) -> int:
+    from bot.models.user import parent_category
+
+    parent = parent_category(subcategory)
+
+    async with get_db() as db:
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) FROM questions q
+            WHERE (q.subcategory = ? OR (q.subcategory IS NULL AND q.category = ?))
+              AND q.is_resolved = 0
+              AND (q.close_time IS NULL OR datetime(q.close_time) > datetime('now'))
+              AND NOT EXISTS (
+                  SELECT 1 FROM answers a
+                  WHERE a.question_id = q.id AND a.user_id = ?
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM skipped_questions sq
+                  WHERE sq.question_id = q.id AND sq.user_id = ?
+              )
+            """,
+            (subcategory, parent, user_id, user_id),
         )
         row = await cursor.fetchone()
 

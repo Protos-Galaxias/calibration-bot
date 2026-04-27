@@ -4,9 +4,13 @@ from datetime import datetime, timezone
 
 from aiosqlite import Row
 
-from bot.db.queries.questions import count_cached_by_subcategory, get_unused_question_for_user, question_exists, upsert_question
+from bot.db.queries.questions import (
+    count_usable_cached_by_subcategory_for_user,
+    get_unused_questions_for_user,
+    question_exists,
+    upsert_question,
+)
 from bot.db.queries.users import get_blocked_tags
-from bot.models.user import parent_category
 from bot.services.categorizer import categorize, is_meta_question, is_personal_question
 from bot.services.manifold import ManifoldClient
 
@@ -20,6 +24,7 @@ STALE_PROB_HIGH = 0.95
 MIN_HORIZON_DAYS = 1
 MAX_HORIZON_DAYS = 14
 CACHE_THRESHOLD = 5
+CANDIDATE_LIMIT = 50
 
 SUBCATEGORY_TOPIC_SLUGS: dict[str, list[str]] = {
     # Politics
@@ -152,27 +157,15 @@ def _matches_blocked_tags(question_row: Row, blocked: set[str]) -> bool:
     return bool(tags & blocked)
 
 
-async def _get_unblocked_question(user_id: int, subcategory: str, blocked: set[str]) -> Row | None:
-    for _ in range(20):
-        q = await get_unused_question_for_user(user_id, subcategory)
-        if not q:
-            return None
-        if not _matches_blocked_tags(q, blocked):
-            return q
+async def _get_unblocked_questions(user_id: int, subcategory: str, blocked: set[str]) -> list[Row]:
+    questions = await get_unused_questions_for_user(user_id, subcategory, limit=CANDIDATE_LIMIT)
+    if not blocked:
+        return questions
 
-    return None
+    return [q for q in questions if not _matches_blocked_tags(q, blocked)]
 
 
-def _effective_subcategory(question_row: Row) -> str:
-    """Get subcategory from question row, falling back to parent category."""
-    subcat = question_row["subcategory"] if "subcategory" in question_row.keys() else None
-    if subcat:
-        return subcat
-
-    return question_row["category"]
-
-
-_MAX_FRESHNESS_ATTEMPTS = 5
+_MAX_FRESHNESS_ATTEMPTS = 20
 
 
 async def _is_still_interesting(question_row: Row, client: ManifoldClient) -> bool:
@@ -192,13 +185,37 @@ async def _pick_fresh_question(
     client: ManifoldClient,
 ) -> Row | None:
     """Get an unblocked question and verify its live prob is still interesting."""
-    for _ in range(_MAX_FRESHNESS_ATTEMPTS):
-        q = await _get_unblocked_question(user_id, subcategory, blocked)
-        if not q:
-            return None
+    questions = await _get_unblocked_questions(user_id, subcategory, blocked)
+    for q in questions[:_MAX_FRESHNESS_ATTEMPTS]:
         if await _is_still_interesting(q, client):
             return q
         logger.info("Skipping stale market %s (prob moved to extreme)", q["manifold_id"])
+
+    return None
+
+
+async def _pick_or_refill(
+    user_id: int,
+    subcategory: str,
+    blocked: set[str],
+    client: ManifoldClient,
+) -> Row | None:
+    cached_count = await count_usable_cached_by_subcategory_for_user(user_id, subcategory)
+    fetched = False
+
+    if cached_count < CACHE_THRESHOLD:
+        await _fetch_and_cache(client, subcategory, blocked)
+        fetched = True
+
+    question = await _pick_fresh_question(user_id, subcategory, blocked, client)
+    if question:
+        return question
+
+    if not fetched:
+        await _fetch_and_cache(client, subcategory, blocked)
+        question = await _pick_fresh_question(user_id, subcategory, blocked, client)
+        if question:
+            return question
 
     return None
 
@@ -232,29 +249,16 @@ async def pick_question(
     answer_counts = {r["effective_subcat"]: r["cnt"] for r in rows}
     target_subcat = _pick_subcategory(subcategories, answer_counts)
 
-    question = await _pick_fresh_question(user_id, target_subcat, blocked, manifold_client)
+    question = await _pick_or_refill(user_id, target_subcat, blocked, manifold_client)
     if question:
         return question
-
-    cache_count = await count_cached_by_subcategory(target_subcat)
-    if cache_count < CACHE_THRESHOLD:
-        await _fetch_and_cache(manifold_client, target_subcat, blocked)
-        question = await _pick_fresh_question(user_id, target_subcat, blocked, manifold_client)
-        if question:
-            return question
 
     for subcat in subcategories:
         if subcat == target_subcat:
             continue
-        question = await _pick_fresh_question(user_id, subcat, blocked, manifold_client)
+
+        question = await _pick_or_refill(user_id, subcat, blocked, manifold_client)
         if question:
             return question
-
-        cache_count = await count_cached_by_subcategory(subcat)
-        if cache_count < CACHE_THRESHOLD:
-            await _fetch_and_cache(manifold_client, subcat, blocked)
-            question = await _pick_fresh_question(user_id, subcat, blocked, manifold_client)
-            if question:
-                return question
 
     return None
