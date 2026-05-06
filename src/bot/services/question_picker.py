@@ -62,8 +62,21 @@ def _has_blocked_tag(group_slugs: list[str], blocked_tags: set[str]) -> bool:
     if not blocked_tags:
         return False
     slugs = {s.lower() for s in group_slugs}
+    blocked = {t.lower() for t in blocked_tags}
 
-    return bool(slugs & blocked_tags)
+    return bool(slugs & blocked)
+
+
+async def _fetch_group_slugs(client: ManifoldClient, manifold_id: str) -> list[str] | None:
+    """search-markets API doesn't return groupSlugs — fetch them via get_market."""
+    try:
+        market = await client.get_market(manifold_id)
+    except Exception:
+        logger.warning("Failed to fetch full market %s for tags", manifold_id)
+
+        return None
+
+    return market.get("groupSlugs", []) or []
 
 
 async def _fetch_and_cache(client: ManifoldClient, target_subcategory: str, blocked_tags: set[str] | None = None) -> int:
@@ -90,12 +103,6 @@ async def _fetch_and_cache(client: ManifoldClient, target_subcategory: str, bloc
                 continue
             if m.probability < MIN_PROB or m.probability > MAX_PROB:
                 continue
-            if is_meta_question(m.question, m.group_slugs):
-                continue
-            if is_personal_question(m.question, m.group_slugs):
-                continue
-            if _has_blocked_tag(m.group_slugs, blocked_tags or set()):
-                continue
 
             if not m.close_time:
                 continue
@@ -112,7 +119,18 @@ async def _fetch_and_cache(client: ManifoldClient, target_subcategory: str, bloc
             if await question_exists(m.id):
                 continue
 
-            category, subcategory = await categorize(m.question, m.group_slugs)
+            group_slugs = await _fetch_group_slugs(client, m.id)
+            if group_slugs is None:
+                continue
+
+            if is_meta_question(m.question, group_slugs):
+                continue
+            if is_personal_question(m.question, group_slugs):
+                continue
+            if _has_blocked_tag(group_slugs, blocked_tags or set()):
+                continue
+
+            category, subcategory = await categorize(m.question, group_slugs)
 
             await upsert_question(
                 manifold_id=m.id,
@@ -123,7 +141,7 @@ async def _fetch_and_cache(client: ManifoldClient, target_subcategory: str, bloc
                 close_time=close_dt.isoformat(),
                 volume=m.volume,
                 url=m.url,
-                tags=json.dumps(m.group_slugs),
+                tags=json.dumps(group_slugs),
             )
             cached += 1
 
@@ -148,13 +166,35 @@ def _pick_subcategory(user_subcategories: list[str], answer_counts: dict[str, in
     return best
 
 
-def _matches_blocked_tags(question_row: Row, blocked: set[str]) -> bool:
+def _row_tags(question_row: Row) -> list[str]:
+    raw = question_row["tags"] if "tags" in question_row.keys() else "[]"
+
+    return json.loads(raw or "[]")
+
+
+def _tags_match_blocked(tags: list[str], blocked: set[str]) -> bool:
     if not blocked:
         return False
-    raw = question_row["tags"] if "tags" in question_row.keys() else "[]"
-    tags = {t.lower() for t in json.loads(raw or "[]")}
+    norm_tags = {t.lower() for t in tags}
+    norm_blocked = {t.lower() for t in blocked}
 
-    return bool(tags & blocked)
+    return bool(norm_tags & norm_blocked)
+
+
+async def _ensure_tags(question_row: Row, client: ManifoldClient) -> list[str]:
+    """Backfill tags for legacy rows that were cached before tag-fetching worked."""
+    tags = _row_tags(question_row)
+    if tags:
+        return tags
+
+    fetched = await _fetch_group_slugs(client, question_row["manifold_id"])
+    if not fetched:
+        return []
+
+    from bot.db.queries.questions import update_tags
+    await update_tags(question_row["id"], json.dumps(fetched))
+
+    return fetched
 
 
 async def _get_unblocked_questions(user_id: int, subcategory: str, blocked: set[str]) -> list[Row]:
@@ -162,7 +202,7 @@ async def _get_unblocked_questions(user_id: int, subcategory: str, blocked: set[
     if not blocked:
         return questions
 
-    return [q for q in questions if not _matches_blocked_tags(q, blocked)]
+    return [q for q in questions if not _tags_match_blocked(_row_tags(q), blocked)]
 
 
 _MAX_FRESHNESS_ATTEMPTS = 20
@@ -187,6 +227,10 @@ async def _pick_fresh_question(
     """Get an unblocked question and verify its live prob is still interesting."""
     questions = await _get_unblocked_questions(user_id, subcategory, blocked)
     for q in questions[:_MAX_FRESHNESS_ATTEMPTS]:
+        tags = await _ensure_tags(q, client)
+        if _tags_match_blocked(tags, blocked):
+            logger.info("Skipping question %s — matched blocked tag after enrichment", q["manifold_id"])
+            continue
         if await _is_still_interesting(q, client):
             return q
         logger.info("Skipping stale market %s (prob moved to extreme)", q["manifold_id"])

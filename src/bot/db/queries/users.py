@@ -143,6 +143,7 @@ async def get_blocked_tags(telegram_id: int) -> list[str]:
 
 
 async def add_blocked_tag(telegram_id: int, tag: str) -> None:
+    tag = tag.lower()
     tags = await get_blocked_tags(telegram_id)
     if tag in tags:
         return
@@ -155,6 +156,7 @@ async def add_blocked_tag(telegram_id: int, tag: str) -> None:
 
 
 async def remove_blocked_tag(telegram_id: int, tag: str) -> None:
+    tag = tag.lower()
     tags = await get_blocked_tags(telegram_id)
     if tag not in tags:
         return
