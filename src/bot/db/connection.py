@@ -54,42 +54,48 @@ async def _migrate_to_multi_source(db: aiosqlite.Connection) -> None:
 
         return
 
-    await db.executescript(
-        """
-        CREATE TABLE questions_new (
-            id INTEGER PRIMARY KEY,
-            source TEXT NOT NULL DEFAULT 'manifold',
-            source_id TEXT NOT NULL,
-            question_text TEXT NOT NULL,
-            question_text_ru TEXT,
-            category TEXT NOT NULL,
-            subcategory TEXT,
-            tags TEXT DEFAULT '[]',
-            market_prob REAL,
-            close_time TEXT,
-            volume REAL,
-            url TEXT,
-            is_resolved INTEGER DEFAULT 0,
-            resolution TEXT,
-            resolution_time TEXT,
-            fetched_at TEXT DEFAULT (datetime('now')),
-            UNIQUE(source, source_id)
-        );
-        INSERT INTO questions_new (
-            id, source, source_id, question_text, question_text_ru,
-            category, subcategory, tags, market_prob, close_time,
-            volume, url, is_resolved, resolution, resolution_time, fetched_at
+    await db.execute("PRAGMA foreign_keys = OFF")
+    try:
+        await db.executescript(
+            """
+            DROP TABLE IF EXISTS questions_new;
+            CREATE TABLE questions_new (
+                id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL DEFAULT 'manifold',
+                source_id TEXT NOT NULL,
+                question_text TEXT NOT NULL,
+                question_text_ru TEXT,
+                category TEXT NOT NULL,
+                subcategory TEXT,
+                tags TEXT DEFAULT '[]',
+                market_prob REAL,
+                close_time TEXT,
+                volume REAL,
+                url TEXT,
+                is_resolved INTEGER DEFAULT 0,
+                resolution TEXT,
+                resolution_time TEXT,
+                fetched_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(source, source_id)
+            );
+            INSERT INTO questions_new (
+                id, source, source_id, question_text, question_text_ru,
+                category, subcategory, tags, market_prob, close_time,
+                volume, url, is_resolved, resolution, resolution_time, fetched_at
+            )
+            SELECT
+                id, 'manifold', manifold_id, question_text, question_text_ru,
+                category, subcategory, tags, market_prob, close_time,
+                volume, url, is_resolved, resolution, resolution_time, fetched_at
+            FROM questions;
+            DROP TABLE questions;
+            ALTER TABLE questions_new RENAME TO questions;
+            PRAGMA user_version = 1;
+            """
         )
-        SELECT
-            id, 'manifold', manifold_id, question_text, question_text_ru,
-            category, subcategory, tags, market_prob, close_time,
-            volume, url, is_resolved, resolution, resolution_time, fetched_at
-        FROM questions;
-        DROP TABLE questions;
-        ALTER TABLE questions_new RENAME TO questions;
-        PRAGMA user_version = 1;
-        """
-    )
+    finally:
+        await db.execute("PRAGMA foreign_keys = ON")
+
     logger.info("Migrated questions table to multi-source schema")
 
 
