@@ -145,10 +145,10 @@ async def _send_next(callback: types.CallbackQuery, user) -> None:
     if not callback.message:
         return
 
-    from bot.main import manifold_client
+    from bot.main import sources_registry
     from bot.services.question_picker import pick_question
 
-    question = await pick_question(user, manifold_client)
+    question = await pick_question(user, sources_registry)
     if question:
         from bot.handlers.question import send_question_to_user
         await send_question_to_user(callback.message.chat.id, user, question)

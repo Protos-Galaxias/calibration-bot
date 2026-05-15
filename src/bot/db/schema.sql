@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS questions (
     id INTEGER PRIMARY KEY,
-    manifold_id TEXT UNIQUE NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manifold',
+    source_id TEXT NOT NULL,
     question_text TEXT NOT NULL,
     question_text_ru TEXT,
     category TEXT NOT NULL,
@@ -28,7 +29,8 @@ CREATE TABLE IF NOT EXISTS questions (
     is_resolved INTEGER DEFAULT 0,
     resolution TEXT,
     resolution_time TEXT,
-    fetched_at TEXT DEFAULT (datetime('now'))
+    fetched_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(source, source_id)
 );
 
 CREATE TABLE IF NOT EXISTS answers (

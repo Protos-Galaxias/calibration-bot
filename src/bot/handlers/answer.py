@@ -47,11 +47,15 @@ async def on_answer(message: types.Message) -> None:
 
     user_prob = value / 100.0
 
-    from bot.main import manifold_client
-    try:
-        market_prob = await manifold_client.get_prob(question["manifold_id"])
-    except Exception:
-        market_prob = question["market_prob"]
+    from bot.main import sources_registry
+
+    source_name = question["source"] if "source" in question.keys() and question["source"] else "manifold"
+    source = sources_registry.get(source_name)
+    market_prob = question["market_prob"]
+    if source:
+        live_prob = await source.get_probability(question["source_id"])
+        if live_prob is not None:
+            market_prob = live_prob
 
     await create_answer(user["id"], question_id, user_prob, market_prob)
     await clear_pending_question(tg_id)

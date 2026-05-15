@@ -8,8 +8,8 @@ from aiogram.types import BotCommand
 from bot.config import settings
 from bot.db.connection import init_db
 from bot.handlers import answer, callbacks, domains, help, question, settings as settings_handler, start, stats, streak
-from bot.services.manifold import ManifoldClient
 from bot.services.scheduler import add_schedules, create_scheduler
+from bot.services.sources import build_registry
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -19,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=settings.telegram_bot_token)
-manifold_client = ManifoldClient()
+sources_registry = build_registry()
 
 
 async def main() -> None:
@@ -56,7 +56,7 @@ async def main() -> None:
             logger.info("Starting bot polling...")
             await dp.start_polling(bot)
         finally:
-            await manifold_client.close()
+            await sources_registry.close_all()
             logger.info("Bot stopped")
 
 

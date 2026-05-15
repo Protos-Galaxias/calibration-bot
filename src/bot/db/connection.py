@@ -39,6 +39,60 @@ async def _migrate_user_categories(db: aiosqlite.Connection) -> None:
             )
 
 
+async def _migrate_to_multi_source(db: aiosqlite.Connection) -> None:
+    """Rebuild questions table to use (source, source_id) instead of manifold_id."""
+    cur = await db.execute("PRAGMA user_version")
+    row = await cur.fetchone()
+    version = row[0] if row else 0
+    if version >= 1:
+        return
+
+    cur = await db.execute("PRAGMA table_info(questions)")
+    cols = {r[1] for r in await cur.fetchall()}
+    if "manifold_id" not in cols:
+        await db.execute("PRAGMA user_version = 1")
+
+        return
+
+    await db.executescript(
+        """
+        CREATE TABLE questions_new (
+            id INTEGER PRIMARY KEY,
+            source TEXT NOT NULL DEFAULT 'manifold',
+            source_id TEXT NOT NULL,
+            question_text TEXT NOT NULL,
+            question_text_ru TEXT,
+            category TEXT NOT NULL,
+            subcategory TEXT,
+            tags TEXT DEFAULT '[]',
+            market_prob REAL,
+            close_time TEXT,
+            volume REAL,
+            url TEXT,
+            is_resolved INTEGER DEFAULT 0,
+            resolution TEXT,
+            resolution_time TEXT,
+            fetched_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(source, source_id)
+        );
+        INSERT INTO questions_new (
+            id, source, source_id, question_text, question_text_ru,
+            category, subcategory, tags, market_prob, close_time,
+            volume, url, is_resolved, resolution, resolution_time, fetched_at
+        )
+        SELECT
+            id, 'manifold', manifold_id, question_text, question_text_ru,
+            category, subcategory, tags, market_prob, close_time,
+            volume, url, is_resolved, resolution, resolution_time, fetched_at
+        FROM questions;
+        DROP TABLE questions;
+        ALTER TABLE questions_new RENAME TO questions;
+        PRAGMA user_version = 1;
+        """
+    )
+    logger.info("Migrated questions table to multi-source schema")
+
+
 async def init_db() -> None:
     path = Path(settings.database_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +116,7 @@ async def init_db() -> None:
             except Exception:
                 pass
 
+        await _migrate_to_multi_source(db)
         await _migrate_user_categories(db)
         await db.commit()
 

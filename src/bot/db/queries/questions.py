@@ -4,7 +4,8 @@ from bot.db.connection import get_db
 
 
 async def upsert_question(
-    manifold_id: str,
+    source: str,
+    source_id: str,
     question_text: str,
     category: str,
     market_prob: float,
@@ -17,16 +18,16 @@ async def upsert_question(
     async with get_db() as db:
         cursor = await db.execute(
             """
-            INSERT INTO questions (manifold_id, question_text, category, subcategory, tags, market_prob, close_time, volume, url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(manifold_id) DO UPDATE SET
+            INSERT INTO questions (source, source_id, question_text, category, subcategory, tags, market_prob, close_time, volume, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source, source_id) DO UPDATE SET
                 market_prob = excluded.market_prob,
                 volume = excluded.volume,
                 tags = excluded.tags,
                 subcategory = COALESCE(excluded.subcategory, questions.subcategory)
             RETURNING *
             """,
-            (manifold_id, question_text, category, subcategory, tags, market_prob, close_time, volume, url),
+            (source, source_id, question_text, category, subcategory, tags, market_prob, close_time, volume, url),
         )
         row = await cursor.fetchone()
 
@@ -179,11 +180,11 @@ async def count_cached_by_category(category: str) -> int:
         return row[0] if row else 0  # type: ignore[index]
 
 
-async def question_exists(manifold_id: str) -> bool:
+async def question_exists(source: str, source_id: str) -> bool:
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT 1 FROM questions WHERE manifold_id = ?",
-            (manifold_id,),
+            "SELECT 1 FROM questions WHERE source = ? AND source_id = ?",
+            (source, source_id),
         )
 
         return await cursor.fetchone() is not None

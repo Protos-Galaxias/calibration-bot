@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 async def _send_daily_questions() -> None:
     from bot.db.queries.users import get_all_users
     from bot.handlers.question import send_question_to_user
-    from bot.main import manifold_client
+    from bot.main import sources_registry
     from bot.services.question_picker import pick_question
 
     users = await get_all_users()
@@ -24,7 +24,7 @@ async def _send_daily_questions() -> None:
             if user_now.hour != user["daily_hour"]:
                 continue
 
-            question = await pick_question(user, manifold_client)
+            question = await pick_question(user, sources_registry)
             if not question:
                 continue
 
@@ -34,12 +34,12 @@ async def _send_daily_questions() -> None:
 
 
 async def _check_resolutions() -> None:
-    from bot.main import bot, manifold_client
+    from bot.main import bot, sources_registry
     from bot.services.resolution import check_resolutions
     from bot.helpers.formatting import format_resolution
     from bot.db.queries.users import get_user_by_id
 
-    notifications = await check_resolutions(manifold_client, bot)
+    notifications = await check_resolutions(sources_registry, bot)
 
     for n in notifications:
         try:

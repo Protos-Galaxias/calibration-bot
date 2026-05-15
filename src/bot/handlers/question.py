@@ -14,19 +14,28 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-async def _fetch_tags_from_manifold(manifold_id: str, question_id: int) -> list[str]:
-    try:
-        from bot.main import manifold_client
-        market = await manifold_client.get_market(manifold_id)
-        slugs: list[str] = market.get("groupSlugs", [])
-        if slugs:
-            await update_tags(question_id, json.dumps(slugs))
+async def _fetch_tags_from_source(source_name: str, source_id: str, question_id: int) -> list[str]:
+    from bot.main import sources_registry
 
-        return slugs
-    except Exception:
-        logger.warning("Failed to fetch tags for manifold_id=%s", manifold_id)
+    source = sources_registry.get(source_name)
+    if not source:
+        logger.warning("No registered source %r for question %d", source_name, question_id)
 
         return []
+
+    try:
+        market = await source.get_market(source_id)
+    except Exception:
+        logger.warning("Failed to fetch tags for %s/%s", source_name, source_id)
+
+        return []
+
+    if not market or not market.tags:
+        return []
+
+    await update_tags(question_id, json.dumps(market.tags))
+
+    return market.tags
 
 
 def _skip_button(category: str) -> types.InlineKeyboardMarkup:
@@ -50,7 +59,8 @@ async def send_question_to_user(chat_id: int, user_row, question_row) -> None:
     tags: list[str] = json.loads(raw_tags) if raw_tags else []
 
     if not tags:
-        tags = await _fetch_tags_from_manifold(question_row["manifold_id"], question_row["id"])
+        source_name = question_row["source"] if "source" in question_row.keys() and question_row["source"] else "manifold"
+        tags = await _fetch_tags_from_source(source_name, question_row["source_id"], question_row["id"])
 
     subcategory = question_row["subcategory"] if "subcategory" in question_row.keys() else None
 
@@ -85,10 +95,10 @@ async def cmd_question(message: types.Message) -> None:
 
         return
 
-    from bot.main import manifold_client
+    from bot.main import sources_registry
     from bot.services.question_picker import pick_question
 
-    question = await pick_question(user, manifold_client)
+    question = await pick_question(user, sources_registry)
     if not question:
         await message.answer("Сейчас нет подходящих вопросов. Попробуй позже.")
 

@@ -3,36 +3,42 @@ import logging
 from bot.db.queries.answers import get_answers_for_question
 from bot.db.queries.questions import get_unresolved_with_answers, mark_resolved
 from bot.db.queries.resolutions import create_resolution, resolution_exists
-from bot.services.manifold import ManifoldClient
 from bot.services.scoring import brier_score
+from bot.services.sources import SourcesRegistry
 
 logger = logging.getLogger(__name__)
 
 
-async def check_resolutions(manifold_client: ManifoldClient, bot) -> list[dict]:
+async def check_resolutions(registry: SourcesRegistry, bot) -> list[dict]:
     """Check all unresolved questions for resolutions. Returns list of notifications to send."""
     questions = await get_unresolved_with_answers()
     notifications: list[dict] = []
 
     for q in questions:
+        source_name = q["source"] if "source" in q.keys() and q["source"] else "manifold"
+        source = registry.get(source_name)
+        if not source:
+            logger.warning("No registered source %r for question %s", source_name, q["id"])
+            continue
+
         try:
-            market = await manifold_client.get_market(q["manifold_id"])
+            resolution = await source.get_resolution(q["source_id"])
         except Exception:
-            logger.exception("Failed to fetch market %s", q["manifold_id"])
+            logger.exception("Failed to fetch resolution for %s/%s", source_name, q["source_id"])
             continue
 
-        if not market.get("isResolved"):
+        if not resolution:
             continue
 
-        resolution = market.get("resolution")
-        if resolution not in ("YES", "NO"):
-            await mark_resolved(q["id"], resolution or "CANCEL", market.get("resolutionTime", ""))
+        res_time = resolution.resolved_at.isoformat() if resolution.resolved_at else ""
+
+        if resolution.outcome not in ("YES", "NO"):
+            await mark_resolved(q["id"], resolution.outcome or "CANCEL", res_time)
             continue
 
-        outcome = 1 if resolution == "YES" else 0
-        res_time = market.get("resolutionTime", "")
+        outcome = 1 if resolution.outcome == "YES" else 0
 
-        await mark_resolved(q["id"], resolution, str(res_time))
+        await mark_resolved(q["id"], resolution.outcome, res_time)
 
         answers = await get_answers_for_question(q["id"])
         for ans in answers:
@@ -47,7 +53,7 @@ async def check_resolutions(manifold_client: ManifoldClient, bot) -> list[dict]:
             notifications.append({
                 "user_id": ans["user_id"],
                 "question_text": q["question_text"],
-                "resolution": resolution,
+                "resolution": resolution.outcome,
                 "user_prob": ans["user_prob"],
                 "market_prob": ans["market_prob_at_answer"],
                 "user_brier": user_b,

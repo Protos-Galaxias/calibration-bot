@@ -33,11 +33,13 @@ _RULES: list[tuple[str, list[str]]] = [
         "entertainment", "movies", "music", "tv", "television", "celebrities",
         "oscars", "grammys", "emmys", "streaming", "netflix", "spotify", "gaming",
         "books", "art", "culture", "pop-culture", "anime", "manga",
+        "sports-entertainment",
     ]),
     ("business", [
         "business", "economics", "finance", "markets", "stock-market", "startups",
         "venture-capital", "ipo", "mergers", "acquisitions", "real-estate", "inflation",
-        "fed", "interest-rates", "gdp", "unemployment", "trade", "tiktok",
+        "fed", "interest-rates", "gdp", "unemployment", "trade", "tiktok", "economy",
+        "economy-business",
     ]),
 ]
 
@@ -74,10 +76,11 @@ _SUBCAT_RULES: list[tuple[str, list[str]]] = [
     ("biotech", [
         "biotech", "biology", "medicine", "pharma", "health", "covid",
         "pandemic", "vaccine", "fda", "genetics", "science", "quantum-computing",
+        "health-pandemics",
     ]),
     ("software", [
         "software", "programming", "technology", "google", "apple", "microsoft",
-        "meta", "internet", "social-media", "startups-tech",
+        "meta", "internet", "social-media", "startups-tech", "tech",
     ]),
     # Sports
     ("football-soccer", [
@@ -89,11 +92,12 @@ _SUBCAT_RULES: list[tuple[str, list[str]]] = [
     ("other-sports", [
         "sports", "baseball", "mlb", "tennis", "f1", "formula-1", "esports",
         "olympics", "cricket", "golf", "boxing", "mma", "ufc", "hockey", "nhl",
+        "sports-entertainment",
     ]),
     # Culture
     ("movies-tv", [
         "movies", "tv", "television", "oscars", "emmys", "streaming", "netflix",
-        "entertainment", "celebrities", "anime", "manga",
+        "entertainment", "celebrities", "anime", "manga", "pop-culture",
     ]),
     ("music", ["music", "grammys", "spotify", "concerts"]),
     ("gaming", ["gaming", "video-games", "twitch", "esports-culture"]),
@@ -104,7 +108,8 @@ _SUBCAT_RULES: list[tuple[str, list[str]]] = [
     ]),
     ("macro", [
         "economics", "inflation", "fed", "interest-rates", "gdp",
-        "unemployment", "recession", "trade", "real-estate",
+        "unemployment", "recession", "trade", "real-estate", "economy",
+        "economy-business",
     ]),
     ("companies", [
         "business", "startups", "venture-capital", "ipo", "mergers",

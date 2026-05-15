@@ -143,8 +143,8 @@ async def on_cat_done(callback: types.CallbackQuery) -> None:
     await callback.message.edit_text("✅ Отлично! Подкатегории сохранены. Сейчас пришлю первый вопрос...")
     await callback.answer()
 
-    from bot.main import manifold_client
-    question = await pick_question(user_row, manifold_client)
+    from bot.main import sources_registry
+    question = await pick_question(user_row, sources_registry)
     if not question:
         await callback.message.answer("К сожалению, сейчас нет подходящих вопросов. Попробуй позже через /question.")
 
