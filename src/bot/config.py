@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     telegram_bot_token: str
     openrouter_api_key: str = ""
-    openrouter_model: str = "google/gemini-2.0-flash-001"
+    openrouter_model: str = "google/gemini-2.5-flash-lite"
     metaculus_api_token: str = ""
     database_path: str = "./data/calibration.db"
     daily_question_default_hour: int = 10

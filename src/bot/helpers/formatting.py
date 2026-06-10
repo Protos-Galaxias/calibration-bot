@@ -74,22 +74,29 @@ def format_answer_response(user_prob: float, pending_count: int) -> str:
 def format_resolution(
     question_text: str,
     resolution: str,
+    outcome: int,
     user_prob: float,
     market_prob: float,
     user_brier: float,
     market_brier: float,
+    question_text_ru: str | None = None,
 ) -> str:
-    icon = "✅" if resolution == "YES" else "❌"
+    user_hit = (user_prob >= 0.5) == bool(outcome)
+    icon = "✅" if user_hit else "❌"
+    hit_text = "Ты угадал(а)!" if user_hit else "Не угадал(а)"
     outcome_text = "Да" if resolution == "YES" else "Нет"
     u = int(user_prob * 100)
     m = int(market_prob * 100)
 
-    return (
-        f"{icon} <b>Резолюция</b>\n\n"
-        f'"{question_text}" — <b>{outcome_text}.</b>\n\n'
-        f"Твоя оценка: {u}% · Рынок: {m}%\n"
-        f"Твой Brier: {user_brier:.2f} · Рыночный Brier: {market_brier:.2f}"
-    )
+    display = question_text_ru or question_text
+    lines = [f"{icon} <b>{hit_text}</b>\n", f'"{display}"']
+    if question_text_ru and question_text_ru != question_text:
+        lines.append(f"<i>{question_text}</i>")
+
+    lines.append(f"\nИсход: <b>{outcome_text}</b> · твоя оценка: {u}% · рынок: {m}%")
+    lines.append(f"Твой Brier: {user_brier:.2f} · рыночный Brier: {market_brier:.2f}")
+
+    return "\n".join(lines)
 
 
 def format_stats(

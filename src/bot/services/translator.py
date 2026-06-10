@@ -34,7 +34,16 @@ async def translate_to_russian(text: str) -> str | None:
                     ],
                 },
             )
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                logger.error(
+                    "Translation API returned %s for model %r: %s",
+                    resp.status_code,
+                    settings.openrouter_model,
+                    resp.text[:300],
+                )
+
+                return None
+
             result = resp.json()["choices"][0]["message"]["content"].strip()
             if result:
                 return result

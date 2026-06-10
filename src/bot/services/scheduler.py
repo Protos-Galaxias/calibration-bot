@@ -37,6 +37,7 @@ async def _check_resolutions() -> None:
     from bot.main import bot, sources_registry
     from bot.services.resolution import check_resolutions
     from bot.helpers.formatting import format_resolution
+    from bot.services.translator import translate_to_russian
     from bot.db.queries.users import get_user_by_id
 
     notifications = await check_resolutions(sources_registry, bot)
@@ -47,13 +48,19 @@ async def _check_resolutions() -> None:
             if not user:
                 continue
 
+            text_ru = n.get("question_text_ru")
+            if not text_ru:
+                text_ru = await translate_to_russian(n["question_text"])
+
             text = format_resolution(
                 question_text=n["question_text"],
                 resolution=n["resolution"],
+                outcome=n["outcome"],
                 user_prob=n["user_prob"],
                 market_prob=n["market_prob"],
                 user_brier=n["user_brier"],
                 market_brier=n["market_brier"],
+                question_text_ru=text_ru,
             )
             await bot.send_message(user["telegram_id"], text, parse_mode="HTML")
         except Exception:

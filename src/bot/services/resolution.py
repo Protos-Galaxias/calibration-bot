@@ -53,7 +53,9 @@ async def check_resolutions(registry: SourcesRegistry, bot) -> list[dict]:
             notifications.append({
                 "user_id": ans["user_id"],
                 "question_text": q["question_text"],
+                "question_text_ru": q["question_text_ru"] if "question_text_ru" in q.keys() else None,
                 "resolution": resolution.outcome,
+                "outcome": outcome,
                 "user_prob": ans["user_prob"],
                 "market_prob": ans["market_prob_at_answer"],
                 "user_brier": user_b,
