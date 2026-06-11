@@ -50,8 +50,8 @@ class PolymarketSource:
                 "closed": "false",
                 "archived": "false",
                 "limit": _SEARCH_LIMIT,
-                "order": "endDate",
-                "ascending": "true",
+                "order": "volume",
+                "ascending": "false",
             }
             if tag:
                 params["tag_slug"] = tag

@@ -34,7 +34,7 @@ class ManifoldSource:
         for topic in searches:
             try:
                 markets = await self._client.search_markets(
-                    sort="close-date", limit=_SEARCH_LIMIT, topic_slug=topic,
+                    sort="liquidity", limit=_SEARCH_LIMIT, topic_slug=topic,
                 )
             except Exception:
                 logger.warning("Manifold search_markets failed for topic=%s", topic)

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from aiosqlite import Row
 
 from bot.db.queries.questions import (
+    count_usable_cached_by_subcategory,
     count_usable_cached_by_subcategory_for_user,
     get_unused_questions_for_user,
     question_exists,
@@ -22,10 +23,11 @@ MAX_PROB = 0.90
 STALE_PROB_LOW = 0.05
 STALE_PROB_HIGH = 0.95
 MIN_HORIZON_DAYS = 1
-MAX_HORIZON_DAYS = 14
-CACHE_THRESHOLD = 5
+MAX_HORIZON_DAYS = 90
+REFILL_TRIGGER = 5
+REFILL_TARGET = 25
 CANDIDATE_LIMIT = 50
-PER_SOURCE_FETCH_LIMIT = 30
+PER_SOURCE_FETCH_LIMIT = 60
 _MAX_FRESHNESS_ATTEMPTS = 20
 
 
@@ -116,7 +118,7 @@ async def _fetch_and_cache_from_source(
 
         await _cache_one(market)
         cached += 1
-        if cached >= CACHE_THRESHOLD:
+        if cached >= REFILL_TARGET:
             break
 
     if cached:
@@ -214,7 +216,7 @@ async def _pick_or_refill(
     cached_count = await count_usable_cached_by_subcategory_for_user(user_id, subcategory)
     fetched = False
 
-    if cached_count < CACHE_THRESHOLD:
+    if cached_count < REFILL_TRIGGER:
         await _fetch_and_cache(registry, subcategory, blocked)
         fetched = True
 
@@ -229,6 +231,24 @@ async def _pick_or_refill(
             return question
 
     return None
+
+
+async def prefetch_cache(registry: SourcesRegistry, subcategories: list[str]) -> int:
+    """Proactively top up the global question cache for the given subcategories.
+
+    Skips subcategories already at/above REFILL_TARGET so we don't hammer the
+    source APIs. Uses no blocked-tag filter — the cache is shared across users
+    and per-user blocking happens at pick time.
+    """
+    total = 0
+    for subcategory in subcategories:
+        cached_count = await count_usable_cached_by_subcategory(subcategory)
+        if cached_count >= REFILL_TARGET:
+            continue
+
+        total += await _fetch_and_cache(registry, subcategory, set())
+
+    return total
 
 
 async def pick_question(user_row: Row, registry: SourcesRegistry) -> Row | None:

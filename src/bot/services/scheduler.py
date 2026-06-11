@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -31,6 +32,26 @@ async def _send_daily_questions() -> None:
             await send_question_to_user(user["telegram_id"], user, question)
         except Exception:
             logger.exception("Failed to send daily question to user %s", user["telegram_id"])
+
+
+async def _prefetch_questions() -> None:
+    from bot.db.queries.users import get_all_users
+    from bot.main import sources_registry
+    from bot.models.user import expand_parent_to_children
+    from bot.services.question_picker import prefetch_cache
+
+    users = await get_all_users()
+
+    subcategories: set[str] = set()
+    for user in users:
+        for slug in json.loads(user["categories"]):
+            subcategories.update(expand_parent_to_children(slug))
+
+    if not subcategories:
+        return
+
+    cached = await prefetch_cache(sources_registry, sorted(subcategories))
+    logger.info("Prefetch topped up cache with %d questions across %d subcategories", cached, len(subcategories))
 
 
 async def _check_resolutions() -> None:
@@ -115,6 +136,12 @@ async def add_schedules(scheduler: AsyncScheduler) -> None:
         _check_resolutions,
         IntervalTrigger(hours=1),
         id="check_resolutions",
+    )
+
+    await scheduler.add_schedule(
+        _prefetch_questions,
+        IntervalTrigger(hours=4),
+        id="prefetch_questions",
     )
 
     await scheduler.add_schedule(

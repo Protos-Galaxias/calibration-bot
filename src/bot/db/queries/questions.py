@@ -141,6 +141,31 @@ async def count_cached_by_subcategory(subcategory: str) -> int:
         return row[0] if row else 0  # type: ignore[index]
 
 
+async def count_usable_cached_by_subcategory(subcategory: str) -> int:
+    """Global count of unresolved, not-yet-expired questions in a subcategory.
+
+    Unlike count_cached_by_subcategory this respects close_time, so prefetch
+    won't treat a pile of expired markets as a full cache.
+    """
+    from bot.models.user import parent_category
+
+    parent = parent_category(subcategory)
+
+    async with get_db() as db:
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) FROM questions q
+            WHERE (q.subcategory = ? OR (q.subcategory IS NULL AND q.category = ?))
+              AND q.is_resolved = 0
+              AND (q.close_time IS NULL OR datetime(q.close_time) > datetime('now'))
+            """,
+            (subcategory, parent),
+        )
+        row = await cursor.fetchone()
+
+        return row[0] if row else 0  # type: ignore[index]
+
+
 async def count_usable_cached_by_subcategory_for_user(user_id: int, subcategory: str) -> int:
     from bot.models.user import parent_category
 

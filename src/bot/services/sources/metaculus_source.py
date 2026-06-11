@@ -49,7 +49,7 @@ class MetaculusSource:
                 "forecast_type": "binary",
                 "statuses": "open",
                 "with_cp": "true",
-                "order_by": "scheduled_close_time",
+                "order_by": "-forecasts_count",
                 "limit": _SEARCH_LIMIT,
             }
             if cat:
