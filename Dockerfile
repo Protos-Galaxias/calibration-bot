@@ -4,8 +4,12 @@ WORKDIR /app
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
+ENV UV_HTTP_TIMEOUT=600
+ENV UV_CONCURRENT_DOWNLOADS=2
+
 COPY pyproject.toml .
-RUN uv sync --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --no-install-project
 
 COPY src/ src/
 
